@@ -1,0 +1,42 @@
+[project]
+name = "talent-flow"
+version = "0.1.0"
+description = "人才流动网络分析工具 - 从招聘数据中提取企业员工流动网络"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+keywords = ["talent-flow", "network-analysis", "job-data", "data-processing"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/talent-flow"
+Repository = "https://github.com/yourusername/talent-flow"
+Issues = "https://github.com/yourusername/talent-flow/issues"
+
+[project.scripts]
+talent-flow = "preprocess:main"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.0",
+    "black>=22.0",
+    "ruff>=0.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

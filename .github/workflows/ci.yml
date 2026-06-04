@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --python ${{ matrix.python-version }}
+
+      - name: Run linting
+        run: |
+          uv run ruff check *.py
+          uv run black --check *.py
+
+      - name: Run tests
+        run: uv run pytest
+
+      - name: Test run modules
+        run: |
+          uv run python -c "import data_loader; print('data_loader OK')"
+          uv run python -c "import flow_network; print('flow_network OK')"
+          uv run python -c "import preprocess; print('preprocess OK')"
+          uv run python -c "import statistic; print('statistic OK')"
