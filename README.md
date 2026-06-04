@@ -1,126 +1,126 @@
-# Talent Flow - 人才流动网络分析工具
+# Talent Flow - Employee Transition Network Analysis Tool
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![UV](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 
-从招聘数据中提取企业员工流动网络，构建时间窗口化的流量网络分析。
+Extract employee transition networks from job recruitment data and build time-windowed flow network analysis.
 
-## 功能特性
+## Features
 
-- 📊 **数据加载**: 高效读取 gzipped JSONL 格式的招聘数据
-- 🔄 **流动网络**: 识别员工在不同公司间的流动路径
-- 📈 **统计分析**: 生成流动网络的统计报告
-- ⏱️ **时间窗口**: 支持按时间窗口切分和分析数据
+- 📊 **Data Loading**: Efficiently read gzipped JSONL format recruitment data
+- 🔄 **Flow Networks**: Identify employee movement paths between companies
+- 📈 **Statistical Analysis**: Generate statistical reports for flow networks
+- ⏱️ **Time Windows**: Support for time-windowed data segmentation and analysis
 
-## 快速开始
+## Quick Start
 
-### 前置要求
+### Prerequisites
 
-- [uv](https://docs.astral.sh/uv/getting-started/installation/) - 快速安装: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) - Quick install: `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
-### 一键运行
+### One-Click Run
 
 ```bash
-# 1. 克隆仓库
+# 1. Clone the repository
 git clone https://github.com/yourusername/talent-flow.git
 cd talent-flow
 
-# 2. 使用 uv 一键运行（自动创建虚拟环境并安装依赖）
+# 2. One-click run with uv (auto-creates venv and installs dependencies)
 uv run python preprocess.py
 
-# 或在虚拟环境中运行
+# Or run with specific Python version
 uv run --python 3.11 python statistic.py
 ```
 
-### 常用命令
+### Common Commands
 
 ```bash
-# 创建虚拟环境并安装依赖
+# Create virtual environment and install dependencies
 uv sync
 
-# 激活虚拟环境
+# Activate virtual environment
 source .venv/bin/activate  # Linux/Mac
 .venv\Scripts\activate     # Windows
 
-# 运行主程序
+# Run main program
 uv run python preprocess.py
 
-# 运行统计模块
+# Run statistics module
 uv run python statistic.py
 
-# 格式化代码
+# Format code
 uv run black *.py
 
-# 代码检查
+# Lint code
 uv run ruff check *.py
 
-# 运行测试
+# Run tests
 uv run pytest
 ```
 
-## 项目结构
+## Project Structure
 
 ```
 talent-flow/
-├── data/               # 数据目录（大型数据文件不提交到Git）
-├── cache/              # 缓存目录
-├── data_loader.py      # 数据加载模块
-├── flow_network.py     # 流动网络模块
-├── preprocess.py       # 预处理主程序
-├── statistic.py        # 统计分析模块
-├── pyproject.toml      # 项目配置和依赖
-└── README.md           # 项目说明
+├── data/               # Data directory (large files not committed to Git)
+├── cache/              # Cache directory
+├── data_loader.py      # Data loading module
+├── flow_network.py     # Flow network module
+├── preprocess.py       # Preprocessing main program
+├── statistic.py        # Statistical analysis module
+├── pyproject.toml      # Project configuration and dependencies
+└── README.md           # Project documentation
 ```
 
-## 模块说明
+## Module Descriptions
 
 ### data_loader.py
-数据加载模块，提供从 gzipped JSONL 文件高效流式读取招聘数据的功能。
+Data loading module that provides efficient streaming access to gzipped JSONL recruitment data.
 
 ### flow_network.py
-流动网络核心模块，定义网络结构和节点/边的操作方法。
+Core flow network module defining network structures and node/edge operations.
 
 ### preprocess.py
-预处理主程序，从原始数据中提取员工流动网络。
+Preprocessing main program that extracts employee flow networks from raw data.
 
 ### statistic.py
-统计分析模块，生成流动网络的统计报告和可视化数据。
+Statistical analysis module that generates reports and visualization data for flow networks.
 
-## 数据格式
+## Data Format
 
-输入数据应为 gzipped JSONL 格式，每行包含一个招聘记录的 JSON 对象：
+Input data should be in gzipped JSONL format, with each line containing a JSON object representing a job record:
 
 ```json
 {
-  "company": "公司名称",
-  "employee_id": "员工ID",
+  "company": "Company Name",
+  "employee_id": "Employee ID",
   "start_date": "2020-01",
   "end_date": "2023-06",
-  "position": "职位"
+  "position": "Job Title"
 }
 ```
 
-## 配置说明
+## Configuration
 
-项目使用 `pyproject.toml` 进行配置：
+Project configuration is managed via `pyproject.toml`:
 
-- **依赖管理**: 纯 Python 标准库，无第三方依赖
-- **Python 版本**: >= 3.9
-- **开发工具**: pytest, black, ruff
+- **Dependency Management**: Pure Python standard library, no third-party dependencies
+- **Python Version**: >= 3.9
+- **Dev Tools**: pytest, black, ruff
 
-## 贡献指南
+## Contributing
 
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 创建 Pull Request
+1. Fork this repository
+2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Create a Pull Request
 
-## 许可证
+## License
 
-MIT License - 详见 [LICENSE](LICENSE) 文件
+MIT License - See [LICENSE](LICENSE) file for details
 
-## 联系方式
+## Contact
 
-- 项目主页: https://github.com/yourusername/talent-flow
-- 问题反馈: https://github.com/yourusername/talent-flow/issues
+- Homepage: https://github.com/yourusername/talent-flow
+- Issue Tracker: https://github.com/yourusername/talent-flow/issues
