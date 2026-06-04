@@ -119,8 +119,3 @@ Project configuration is managed via `pyproject.toml`:
 ## License
 
 MIT License - See [LICENSE](LICENSE) file for details
-
-## Contact
-
-- Homepage: https://github.com/yourusername/talent-flow
-- Issue Tracker: https://github.com/yourusername/talent-flow/issues
