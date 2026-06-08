@@ -12,9 +12,9 @@ import json
 from pathlib import Path
 from typing import Dict, List
 import numpy as np
-import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend
+import matplotlib.pyplot as plt
 
 
 def load_results(results_dir: str = "demo/output") -> tuple:
@@ -28,6 +28,13 @@ def load_results(results_dir: str = "demo/output") -> tuple:
         metrics = json.load(f)
 
     return predictions, metrics
+
+
+def format_flow_key(source, target) -> str:
+    """Format flow key for display (handle both int and str IDs)."""
+    s = str(source)[:8]  # Truncate long IDs
+    t = str(target)[:8]
+    return f"{s} → {t}"
 
 
 def plot_time_series_predictions(
@@ -46,7 +53,7 @@ def plot_time_series_predictions(
     # Group predictions by flow
     flows = {}
     for pred in predictions:
-        key = f"{pred['source']} -> {pred['target']}"
+        key = (pred['source'], pred['target'])
         if key not in flows:
             flows[key] = []
         flows[key].append(pred)
@@ -72,16 +79,16 @@ def plot_time_series_predictions(
 
         x = range(len(timestamps))
 
-        ax.plot(x, actual, 'o-', label='Actual', linewidth=2, markersize=8)
-        ax.plot(x, predicted, 's--', label='Predicted', linewidth=2, markersize=6)
+        ax.plot(x, actual, 'o-', label='Actual', linewidth=2, markersize=8, color='steelblue')
+        ax.plot(x, predicted, 's--', label='Predicted', linewidth=2, markersize=6, color='coral')
 
         ax.set_xlabel('Time', fontsize=11)
         ax.set_ylabel('Flow Count', fontsize=11)
-        ax.set_title(flow_key, fontsize=12, fontweight='bold')
+        ax.set_title(format_flow_key(flow_key[0], flow_key[1]), fontsize=10, fontweight='bold')
         ax.legend(loc='best')
         ax.grid(True, alpha=0.3)
         ax.set_xticks(x)
-        ax.set_xticklabels(timestamps, rotation=45, ha='right')
+        ax.set_xticklabels(timestamps, rotation=45, ha='right', fontsize=8)
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
@@ -121,8 +128,9 @@ def plot_error_distribution(
     ax1.legend()
     ax1.grid(True, alpha=0.3)
 
-    # Relative errors
-    ax2.hist(rel_errors, bins=20, edgecolor='black', alpha=0.7, color='coral')
+    # Relative errors (filter extreme values for visualization)
+    rel_errors_filtered = [e for e in rel_errors if e <= 200]  # Filter >200%
+    ax2.hist(rel_errors_filtered, bins=20, edgecolor='black', alpha=0.7, color='coral')
     ax2.axvline(np.mean(rel_errors), color='red', linestyle='--',
                 linewidth=2, label=f'Mean: {np.mean(rel_errors):.1f}%')
     ax2.axvline(np.median(rel_errors), color='green', linestyle='--',
@@ -164,7 +172,7 @@ def plot_metrics_comparison(
     colors = plt.cm.viridis(np.linspace(0, 1, len(flows)))
     bars = ax.barh(range(len(flows)), rmse_values, color=colors)
     ax.set_yticks(range(len(flows)))
-    ax.set_yticklabels([f.replace('->', '→') for f in flows], fontsize=8)
+    ax.set_yticklabels([f[:25] for f in flows], fontsize=8)
     ax.set_xlabel('RMSE', fontsize=11)
     ax.set_title('RMSE by Flow', fontsize=12, fontweight='bold')
     ax.grid(True, alpha=0.3, axis='x')
@@ -173,7 +181,7 @@ def plot_metrics_comparison(
     ax = axes[0, 1]
     bars = ax.barh(range(len(flows)), mae_values, color=colors)
     ax.set_yticks(range(len(flows)))
-    ax.set_yticklabels([f.replace('->', '→') for f in flows], fontsize=8)
+    ax.set_yticklabels([f[:25] for f in flows], fontsize=8)
     ax.set_xlabel('MAE', fontsize=11)
     ax.set_title('MAE by Flow', fontsize=12, fontweight='bold')
     ax.grid(True, alpha=0.3, axis='x')
@@ -182,7 +190,7 @@ def plot_metrics_comparison(
     ax = axes[1, 0]
     bars = ax.barh(range(len(flows)), r2_values, color=colors)
     ax.set_yticks(range(len(flows)))
-    ax.set_yticklabels([f.replace('->', '→') for f in flows], fontsize=8)
+    ax.set_yticklabels([f[:25] for f in flows], fontsize=8)
     ax.set_xlabel('R² Score', fontsize=11)
     ax.set_title('R² by Flow', fontsize=12, fontweight='bold')
     ax.axvline(0, color='red', linestyle='--', alpha=0.5)
@@ -192,7 +200,7 @@ def plot_metrics_comparison(
     ax = axes[1, 1]
     ax.scatter(rmse_values, r2_values, s=100, alpha=0.6, c=colors)
     for i, flow in enumerate(flows):
-        ax.annotate(flow.replace('->', '→'),
+        ax.annotate(flow[:15],
                    (rmse_values[i], r2_values[i]),
                    fontsize=7, alpha=0.7)
     ax.set_xlabel('RMSE', fontsize=11)
@@ -288,18 +296,19 @@ def generate_summary_report(
     # Per-flow metrics
     lines.append("PER-FLOW METRICS")
     lines.append("-" * 70)
-    lines.append(f"{'Flow':<40} {'RMSE':>8} {'MAE':>8} {'R²':>8}")
+    lines.append(f"{'Flow':<35} {'RMSE':>8} {'MAE':>8} {'R2':>8}")
     lines.append("-" * 70)
 
-    for flow, m in sorted(metrics.items(), key=lambda x: x[1]['test_rmse']):
-        lines.append(f"{flow:<40} {m['test_rmse']:>8.3f} {m['test_mae']:>8.3f} {m['test_r2']:>8.3f}")
+    for flow, m in sorted(metrics.items(), key=lambda x: x[1]['test_rmse'])[:10]:
+        flow_short = flow[:34]
+        lines.append(f"{flow_short:<35} {m['test_rmse']:>8.3f} {m['test_mae']:>8.3f} {m['test_r2']:>8.3f}")
 
     lines.append("")
-    lines.append("BEST PERFORMING FLOWS (by R²)")
+    lines.append("BEST PERFORMING FLOWS (by R2)")
     lines.append("-" * 70)
     best = sorted(metrics.items(), key=lambda x: x[1]['test_r2'], reverse=True)[:5]
     for i, (flow, m) in enumerate(best, 1):
-        lines.append(f"{i}. {flow}: R²={m['test_r2']:.3f}, RMSE={m['test_rmse']:.3f}")
+        lines.append(f"{i}. {flow}: R2={m['test_r2']:.3f}, RMSE={m['test_rmse']:.3f}")
 
     lines.append("")
     lines.append("=" * 70)
@@ -325,8 +334,9 @@ def main():
     print("Loading results...")
     try:
         predictions, metrics = load_results()
-    except FileNotFoundError:
-        print("Error: No results found. Please run forecasting first.")
+    except FileNotFoundError as e:
+        print(f"Error: No results found. Please run forecasting first.")
+        print(f"Details: {e}")
         return
 
     print(f"Loaded {len(predictions)} predictions for {len(metrics)} flows")

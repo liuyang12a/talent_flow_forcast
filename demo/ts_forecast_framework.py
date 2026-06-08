@@ -10,18 +10,23 @@ Date: 2024
 
 import json
 import gzip
+import pickle
 import logging
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Union
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-import pickle
 
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.linear_model import Ridge, Lasso
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+
+# Add parent directory to path for importing flow_network
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from flow_network import FlowNetwork
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,11 +35,10 @@ logger = logging.getLogger(__name__)
 @dataclass
 class FlowMetrics:
     """Time series metrics for a company pair flow."""
-    source_company: str
-    target_company: str
+    source_company: Union[int, str]
+    target_company: Union[int, str]
     timestamps: List[str] = field(default_factory=list)
     flow_counts: List[float] = field(default_factory=list)
-    flow_weights: List[float] = field(default_factory=list)
 
     def to_array(self) -> np.ndarray:
         """Convert flow counts to numpy array."""
@@ -48,28 +52,35 @@ class FlowMetrics:
             features.append([
                 dt.year,
                 dt.month,
-                dt.quarter,
+                (dt.month - 1) // 3 + 1,  # Quarter
                 dt.month % 12 + 1,  # Season indicator
             ])
         return np.array(features)
 
 
 class FlowDataLoader:
-    """Load and preprocess monthly flow network data."""
+    """Load and preprocess monthly flow network data from pickle files."""
 
     def __init__(self, data_dir: Union[str, Path]):
         self.data_dir = Path(data_dir)
-        self.flow_metrics: Dict[Tuple[str, str], FlowMetrics] = {}
+        self.flow_metrics: Dict[Tuple[Union[int, str], Union[int, str]], FlowMetrics] = {}
 
-    def load_monthly_data(self, pattern: str = "flow_*.json.gz") -> Dict[str, Dict]:
+    def load_monthly_data(
+        self,
+        start_date: str = "2017-01",
+        end_date: str = "2021-12",
+        pattern: str = "*.pkl"
+    ) -> Dict[str, FlowNetwork]:
         """
-        Load all monthly flow network files.
+        Load all monthly flow network pickle files within date range.
 
         Args:
+            start_date: Start date in YYYY-MM format
+            end_date: End date in YYYY-MM format
             pattern: Glob pattern for data files
 
         Returns:
-            Dictionary mapping timestamp to flow network data
+            Dictionary mapping timestamp to FlowNetwork object
         """
         monthly_data = {}
 
@@ -77,53 +88,63 @@ class FlowDataLoader:
             logger.warning(f"Data directory {self.data_dir} does not exist")
             return monthly_data
 
+        # Parse date range
+        start_dt = datetime.strptime(start_date, "%Y-%m")
+        end_dt = datetime.strptime(end_date, "%Y-%m")
+
         for file_path in sorted(self.data_dir.glob(pattern)):
             try:
-                # Extract timestamp from filename (e.g., flow_2023-01.json.gz)
-                timestamp = file_path.stm.replace('.json', '').replace('flow_', '')
+                # Extract timestamp from filename (e.g., 2019-12.pkl)
+                timestamp = file_path.stem  # Gets '2019-12' from '2019-12.pkl'
+                file_dt = datetime.strptime(timestamp, "%Y-%m")
 
-                with gzip.open(file_path, 'rt', encoding='utf-8') as f:
-                    data = json.load(f)
-                    monthly_data[timestamp] = data
-                    logger.info(f"Loaded data for {timestamp}")
+                # Check if within date range
+                if file_dt < start_dt or file_dt > end_dt:
+                    continue
+
+                # Load pickle file
+                with open(file_path, 'rb') as f:
+                    network = pickle.load(f)
+                    if isinstance(network, FlowNetwork):
+                        monthly_data[timestamp] = network
+                        logger.debug(f"Loaded data for {timestamp}")
+                    else:
+                        logger.warning(f"File {file_path} does not contain FlowNetwork object")
 
             except Exception as e:
                 logger.error(f"Error loading {file_path}: {e}")
 
+        logger.info(f"Loaded {len(monthly_data)} monthly networks from {start_date} to {end_date}")
         return monthly_data
 
     def build_time_series(
         self,
-        monthly_data: Dict[str, Dict],
+        monthly_data: Dict[str, FlowNetwork],
         min_observations: int = 6
-    ) -> Dict[Tuple[str, str], FlowMetrics]:
+    ) -> Dict[Tuple[Union[int, str], Union[int, str]], FlowMetrics]:
         """
         Build time series for each company pair.
 
         Args:
-            monthly_data: Dictionary of monthly flow data
+            monthly_data: Dictionary of monthly FlowNetwork objects
             min_observations: Minimum number of observations required
 
         Returns:
             Dictionary mapping (source, target) to FlowMetrics
         """
         all_timestamps = sorted(monthly_data.keys())
-        temp_data: Dict[Tuple[str, str], Dict[str, Dict]] = {}
+        temp_data: Dict[Tuple[Union[int, str], Union[int, str]], Dict[str, int]] = {}
 
         # Collect data for each company pair across all months
-        for timestamp, data in monthly_data.items():
-            edges = data.get('edges', [])
+        for timestamp, network in monthly_data.items():
+            # Access edges from FlowNetwork object
+            edges = network._edges
 
-            for edge in edges:
-                source = edge.get('source', '')
-                target = edge.get('target', '')
-                count = edge.get('count', 0)
-                weight = edge.get('weight', 0.0)
-
+            for (source, target), weight in edges.items():
                 key = (source, target)
                 if key not in temp_data:
                     temp_data[key] = {}
-                temp_data[key][timestamp] = {'count': count, 'weight': weight}
+                temp_data[key][timestamp] = weight
 
         # Build complete time series with zero padding
         self.flow_metrics = {}
@@ -137,11 +158,9 @@ class FlowDataLoader:
                 for ts in all_timestamps:
                     metrics.timestamps.append(ts)
                     if ts in month_data:
-                        metrics.flow_counts.append(float(month_data[ts]['count']))
-                        metrics.flow_weights.append(float(month_data[ts]['weight']))
+                        metrics.flow_counts.append(float(month_data[ts]))
                     else:
                         metrics.flow_counts.append(0.0)
-                        metrics.flow_weights.append(0.0)
 
                 self.flow_metrics[key] = metrics
 
@@ -175,6 +194,9 @@ class FeatureEngineer:
             n_lags = self.lookback_window
 
         n_samples = len(series) - n_lags - self.forecast_horizon + 1
+        if n_samples <= 0:
+            return np.array([]).reshape(0, n_lags)
+
         features = np.zeros((n_samples, n_lags))
 
         for i in range(n_lags):
@@ -185,7 +207,7 @@ class FeatureEngineer:
     def create_rolling_features(
         self,
         series: np.ndarray,
-        windows: List[int] = [3, 6]
+        windows: List[int] = None
     ) -> np.ndarray:
         """
         Create rolling window statistics.
@@ -197,8 +219,14 @@ class FeatureEngineer:
         Returns:
             Array of rolling features
         """
+        if windows is None:
+            windows = [3, 6]
+
         n_lags = self.lookback_window
         n_samples = len(series) - n_lags - self.forecast_horizon + 1
+
+        if n_samples <= 0:
+            return np.array([]).reshape(0, 0)
 
         rolling_features = []
 
@@ -215,7 +243,7 @@ class FeatureEngineer:
                 rolling_std = []
                 for i in range(n_samples):
                     window_data = series[i + n_lags - window:i + n_lags]
-                    rolling_std.append(np.std(window_data))
+                    rolling_std.append(np.std(window_data) if len(window_data) > 1 else 0.0)
                 rolling_features.append(np.array(rolling_std))
 
         return np.column_stack(rolling_features) if rolling_features else np.zeros((n_samples, 0))
@@ -236,7 +264,7 @@ class FeatureEngineer:
             features.append([
                 dt.year,
                 dt.month,
-                dt.quarter,
+                (dt.month - 1) // 3 + 1,  # Quarter
                 int(dt.month in [3, 4, 5]),    # Spring
                 int(dt.month in [6, 7, 8]),    # Summer
                 int(dt.month in [9, 10, 11]),  # Autumn
@@ -267,6 +295,9 @@ class FeatureEngineer:
         # Create lag features
         X = self.create_lag_features(series)
 
+        if X.size == 0:
+            return np.array([]), np.array([]), []
+
         # Add rolling features
         if use_rolling:
             rolling_feats = self.create_rolling_features(series)
@@ -276,7 +307,8 @@ class FeatureEngineer:
         # Add time features
         if use_time_features:
             time_feats = self.create_time_features(timestamps)
-            X = np.column_stack([X, time_feats])
+            if time_feats.shape[0] == X.shape[0]:
+                X = np.column_stack([X, time_feats])
 
         # Create target
         y = series[self.lookback_window + self.forecast_horizon - 1:]
@@ -337,11 +369,14 @@ class FlowForecaster:
             y: Target vector
             scale_features: Whether to standardize features
         """
+        if X.size == 0 or y.size == 0:
+            raise ValueError("Empty training data")
+
         if scale_features:
             X = self.scaler.fit_transform(X)
 
         self.model.fit(X, y)
-        logger.info(f"Trained {self.model_type} model")
+        logger.info(f"Trained {self.model_type} model on {len(y)} samples")
 
     def predict(self, X: np.ndarray, scale_features: bool = True) -> np.ndarray:
         """
@@ -385,25 +420,6 @@ class FlowForecaster:
             'mape': np.mean(np.abs((y - y_pred) / (y + 1e-8))) * 100
         }
 
-    def save(self, path: Union[str, Path]):
-        """Save model to disk."""
-        with open(path, 'wb') as f:
-            pickle.dump({
-                'model': self.model,
-                'scaler': self.scaler,
-                'model_type': self.model_type
-            }, f)
-        logger.info(f"Model saved to {path}")
-
-    def load(self, path: Union[str, Path]):
-        """Load model from disk."""
-        with open(path, 'rb') as f:
-            data = pickle.load(f)
-            self.model = data['model']
-            self.scaler = data['scaler']
-            self.model_type = data['model_type']
-        logger.info(f"Model loaded from {path}")
-
 
 class ForecastingPipeline:
     """End-to-end forecasting pipeline."""
@@ -411,6 +427,8 @@ class ForecastingPipeline:
     def __init__(
         self,
         data_dir: Union[str, Path],
+        start_date: str = "2017-01",
+        end_date: str = "2021-12",
         lookback_window: int = 6,
         forecast_horizon: int = 1,
         model_type: str = "ridge"
@@ -418,15 +436,17 @@ class ForecastingPipeline:
         self.data_loader = FlowDataLoader(data_dir)
         self.feature_eng = FeatureEngineer(lookback_window, forecast_horizon)
         self.forecaster = FlowForecaster(model_type)
+        self.start_date = start_date
+        self.end_date = end_date
         self.lookback_window = lookback_window
         self.forecast_horizon = forecast_horizon
 
     def run(
         self,
-        test_size: int = 3,
+        test_size: int = 6,
         min_observations: int = 12,
         top_k: Optional[int] = None
-    ) -> Dict[Tuple[str, str], Dict[str, float]]:
+    ) -> Dict[Tuple[Union[int, str], Union[int, str]], Dict[str, float]]:
         """
         Run the complete forecasting pipeline.
 
@@ -440,10 +460,13 @@ class ForecastingPipeline:
         """
         # Load data
         logger.info("Loading monthly flow data...")
-        monthly_data = self.data_loader.load_monthly_data()
+        monthly_data = self.data_loader.load_monthly_data(
+            start_date=self.start_date,
+            end_date=self.end_date
+        )
 
         if not monthly_data:
-            logger.error("No data loaded. Please check data directory.")
+            logger.error("No data loaded. Please check data directory and date range.")
             return {}
 
         # Build time series
@@ -482,35 +505,39 @@ class ForecastingPipeline:
             y_train, y_test = y[:-test_size], y[-test_size:]
             timestamps_test = timestamps[-test_size:]
 
-            # Train model
-            self.forecaster.fit(X_train, y_train)
+            try:
+                # Train model
+                self.forecaster.fit(X_train, y_train)
 
-            # Evaluate
-            train_metrics = self.forecaster.evaluate(X_train, y_train)
-            test_metrics = self.forecaster.evaluate(X_test, y_test)
+                # Evaluate
+                train_metrics = self.forecaster.evaluate(X_train, y_train)
+                test_metrics = self.forecaster.evaluate(X_test, y_test)
 
-            # Store results
-            results[key] = {
-                'train_rmse': train_metrics['rmse'],
-                'test_rmse': test_metrics['rmse'],
-                'test_mae': test_metrics['mae'],
-                'test_r2': test_metrics['r2'],
-                'test_mape': test_metrics['mape'],
-                'n_train': len(X_train),
-                'n_test': len(X_test)
-            }
+                # Store results
+                results[key] = {
+                    'train_rmse': train_metrics['rmse'],
+                    'test_rmse': test_metrics['rmse'],
+                    'test_mae': test_metrics['mae'],
+                    'test_r2': test_metrics['r2'],
+                    'test_mape': test_metrics['mape'],
+                    'n_train': len(X_train),
+                    'n_test': len(X_test)
+                }
 
-            # Store predictions
-            y_pred = self.forecaster.predict(X_test)
-            for i, ts in enumerate(timestamps_test):
-                all_predictions.append({
-                    'source': key[0],
-                    'target': key[1],
-                    'timestamp': ts,
-                    'actual': float(y_test[i]),
-                    'predicted': float(y_pred[i]),
-                    'error': float(abs(y_test[i] - y_pred[i]))
-                })
+                # Store predictions
+                y_pred = self.forecaster.predict(X_test)
+                for i, ts in enumerate(timestamps_test):
+                    all_predictions.append({
+                        'source': key[0],
+                        'target': key[1],
+                        'timestamp': ts,
+                        'actual': float(y_test[i]),
+                        'predicted': float(y_pred[i]),
+                        'error': float(abs(y_test[i] - y_pred[i]))
+                    })
+            except Exception as e:
+                logger.error(f"Error training/evaluating flow {key}: {e}")
+                continue
 
         # Save results
         self._save_results(results, all_predictions)
@@ -527,10 +554,13 @@ class ForecastingPipeline:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
 
-        # Save metrics
+        # Save metrics (convert tuple keys to strings for JSON)
+        json_results = {}
+        for k, v in results.items():
+            key_str = f"{k[0]}->{k[1]}"
+            json_results[key_str] = v
+
         with open(output_path / "metrics.json", 'w') as f:
-            # Convert tuple keys to strings for JSON
-            json_results = {f"{k[0]}->{k[1]}": v for k, v in results.items()}
             json.dump(json_results, f, indent=2)
 
         # Save predictions
@@ -547,11 +577,15 @@ def main():
     MODEL_TYPE = "ridge"  # Options: ridge, lasso, rf, gb
     LOOKBACK_WINDOW = 6   # Use 6 months history
     FORECAST_HORIZON = 1  # Predict 1 month ahead
-    TEST_SIZE = 3         # Use last 3 months for testing
+    TEST_SIZE = 6         # Use last 6 months for testing
+    START_DATE = "2017-01"
+    END_DATE = "2021-12"
 
     # Initialize pipeline
     pipeline = ForecastingPipeline(
         data_dir=DATA_DIR,
+        start_date=START_DATE,
+        end_date=END_DATE,
         lookback_window=LOOKBACK_WINDOW,
         forecast_horizon=FORECAST_HORIZON,
         model_type=MODEL_TYPE
@@ -560,8 +594,8 @@ def main():
     # Run forecasting
     results = pipeline.run(
         test_size=TEST_SIZE,
-        min_observations=12,
-        top_k=10  # Evaluate top 10 flows
+        min_observations=18,  # At least 18 months of data
+        top_k=20  # Evaluate top 20 flows
     )
 
     # Print summary
@@ -574,12 +608,15 @@ def main():
         avg_mae = np.mean([r['test_mae'] for r in results.values()])
         avg_r2 = np.mean([r['test_r2'] for r in results.values()])
 
+        print(f"Date Range: {START_DATE} to {END_DATE}")
         print(f"Model: {MODEL_TYPE}")
         print(f"Flows evaluated: {len(results)}")
         print(f"Average Test RMSE: {avg_rmse:.4f}")
         print(f"Average Test MAE: {avg_mae:.4f}")
         print(f"Average Test R²: {avg_r2:.4f}")
         print("="*60)
+    else:
+        print("No results generated. Check data availability.")
 
 
 if __name__ == "__main__":
