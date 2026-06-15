@@ -616,13 +616,17 @@ def build_and_save_monthly_flow_networks(
     output_dir: str = "data/flow_networks",
     format: str = "pickle",
     max_records: Optional[int] = None,
-    use_tqdm: bool = True
+    use_tqdm: bool = True,
+    batch_size: int = 100000
 ) -> None:
     """
-    Build and save monthly flow networks with progress tracking.
+    Build and save monthly flow networks with memory-efficient streaming.
 
-    This is the main function for converting the entire dataset into
-    monthly flow networks with progress display.
+    This function processes data in batches to minimize memory usage:
+    1. Loads all records for a person before processing
+    2. Generates transitions for completed persons
+    3. Accumulates transitions by month
+    4. Saves completed months and frees memory
 
     Args:
         file_path: Path to the gzipped JSONL file
@@ -630,6 +634,7 @@ def build_and_save_monthly_flow_networks(
         format: File format - "pickle" or "txt"
         max_records: Maximum records to read (None for all)
         use_tqdm: Whether to use tqdm progress bars
+        batch_size: Number of person records to process before saving
     """
     try:
         from tqdm import tqdm
@@ -640,147 +645,231 @@ def build_and_save_monthly_flow_networks(
 
     logger.info(f"Building monthly flow networks from {file_path}...")
     logger.info(f"Output directory: {output_dir}")
+    logger.info(f"Batch size: {batch_size:,} people")
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # First pass: count total records if using tqdm
-    if use_tqdm and max_records is None:
+    # First pass: count total records and group by person
+    total_lines = max_records
+    if max_records is None:
         logger.info("Counting total records...")
         with gzip.open(file_path, "rt", encoding="utf-8") as f:
-            total_lines = sum(1 for _ in f)
+            if use_tqdm:
+                total_lines = sum(1 for _ in tqdm(f, desc="Counting"))
+            else:
+                total_lines = sum(1 for _ in f)
         logger.info(f"Total records: {total_lines:,}")
-    else:
-        total_lines = max_records
 
-    # Dictionary to hold networks for each month
+    # Track saved months to avoid re-saving
+    saved_months: set = set()
+
+    # Dictionary to hold networks for each month (cleared periodically)
     monthly_networks: Dict[str, FlowNetwork] = {}
 
-    # Dictionary to hold career timelines
-    timelines: Dict[str, CareerTimeline] = {}
+    # Process in multiple passes - each pass processes a subset of people
+    total_transitions = 0
+    batch_count = 0
 
-    # Load and group by person with progress bar
-    logger.info("Loading and grouping job records by person...")
+    # Phase 1: Stream process records and build timelines
+    # Key fix: Use pending person to ensure complete timeline
+    logger.info("Phase 1: Processing records...")
+
     record_count = 0
+    current_batch_timelines: Dict[str, CareerTimeline] = {}
+    last_person_id: Optional[str] = None
 
     with gzip.open(file_path, "rt", encoding="utf-8") as f:
-        if use_tqdm:
-            pbar = tqdm(total=total_lines, desc="Loading records", unit="records")
+        iterator = tqdm(f, total=total_lines, desc="Loading records") if use_tqdm else f
 
-        for line in f:
+        for line in iterator:
             if max_records and record_count >= max_records:
+                # Process the last person before breaking
+                if last_person_id and last_person_id in current_batch_timelines:
+                    _process_single_person(
+                        last_person_id,
+                        current_batch_timelines.pop(last_person_id),
+                        monthly_networks
+                    )
                 break
 
             try:
                 data = json.loads(line.strip())
                 job = JobRecord(data)
+                current_person_id = job.id if job.is_valid() else None
 
+                # If we've moved to a new person, process the previous one
+                if last_person_id and current_person_id != last_person_id:
+                    if last_person_id in current_batch_timelines:
+                        _process_single_person(
+                            last_person_id,
+                            current_batch_timelines.pop(last_person_id),
+                            monthly_networks
+                        )
+                        total_transitions += 1  # Will be counted in transitions
+
+                    # Check if we should save and clear memory
+                    if len(current_batch_timelines) >= batch_size:
+                        # Count actual transitions
+                        batch_transition_count = _count_transitions_in_networks(monthly_networks)
+                        batch_count += 1
+                        logger.info(f"Processed batch {batch_count}: {batch_transition_count:,} transitions, "
+                                  f"{len(monthly_networks)} months in memory")
+                        _save_large_months(monthly_networks, saved_months, output_path)
+
+                # Add job to timeline
                 if job.is_valid():
-                    person_id = job.id
-                    if person_id not in timelines:
-                        timelines[person_id] = CareerTimeline(person_id)
-                    timelines[person_id].add_job(job)
+                    if current_person_id not in current_batch_timelines:
+                        current_batch_timelines[current_person_id] = CareerTimeline(current_person_id)
+                    current_batch_timelines[current_person_id].add_job(job)
+                    last_person_id = current_person_id
 
                 record_count += 1
-
-                if use_tqdm:
-                    pbar.update(1)
 
             except json.JSONDecodeError:
                 continue
 
-        if use_tqdm:
-            pbar.close()
+        # Process final person
+        if last_person_id and last_person_id in current_batch_timelines:
+            _process_single_person(
+                last_person_id,
+                current_batch_timelines.pop(last_person_id),
+                monthly_networks
+            )
 
-    logger.info(f"Loaded {record_count:,} records for {len(timelines):,} people")
+    # Count transitions
+    total_transitions = _count_transitions_in_networks(monthly_networks)
 
-    # Identify transitions by month with progress bar
-    logger.info("Identifying job transitions by month...")
+    logger.info(f"Phase 1 complete: {batch_count} batches, {total_transitions:,} total transitions")
 
-    if use_tqdm:
-        person_iter = tqdm(timelines.items(), desc="Processing people", unit="people")
-    else:
-        person_iter = timelines.items()
-
-    transition_count = 0
-
-    for person_id, timeline in person_iter:
-        transitions = timeline.identify_transitions()
-
-        for transition in transitions:
-            transition_time = transition["transition_time"]
-            from_company = transition["from_company"]
-            to_company = transition["to_company"]
-
-            # Format as YYYY-MM
-            month_key = f"{transition_time[0]:04d}-{transition_time[1]:02d}"
-
-            # Create network for this month if not exists
-            if month_key not in monthly_networks:
-                monthly_networks[month_key] = FlowNetwork.empty()
-
-            # Add the transition
-            monthly_networks[month_key].add_edge(from_company, to_company, weight=1)
-            transition_count += 1
-
-    logger.info(
-        f"Identified {transition_count:,} transitions across "
-        f"{len(monthly_networks)} months"
-    )
-
-    # Save monthly networks with progress bar
-    logger.info(f"Saving networks to {output_dir}...")
-    sorted_months = sorted(monthly_networks.keys())
-
-    if use_tqdm:
-        month_iter = tqdm(sorted_months, desc="Saving networks", unit="months")
-    else:
-        month_iter = sorted_months
-
-    for month in month_iter:
-        network = monthly_networks[month]
-
-        if format == "pickle":
-            filepath = output_path / f"{month}.pkl"
-            import pickle
-            with open(filepath, "wb") as f:
-                pickle.dump(network, f)
-        else:
-            filepath = output_path / f"{month}.txt"
-            with open(filepath, "w") as f:
-                f.write(f"# Flow Network: {month}\n")
-                f.write(f"# Nodes: {network.get_node_count()}\n")
-                f.write(f"# Edges: {network.get_edge_count()}\n")
-                f.write(f"# Total Flow: {network.get_total_flow()}\n")
-                f.write("# Format: from_company to_company weight\n")
-
-                for source, target, weight in network.iter_edges():
-                    f.write(f"{source} {target} {weight}\n")
-
-    logger.info(f"Successfully saved {len(sorted_months)} monthly networks to {output_dir}")
+    # Phase 2: Save any remaining months
+    logger.info("Phase 2: Saving remaining months...")
+    _save_months(monthly_networks, saved_months, output_path, format, use_tqdm)
 
     # Print summary
     print("\n" + "=" * 70)
     print("Monthly Flow Networks Summary")
     print("=" * 70)
-    total_nodes = sum(n.get_node_count() for n in monthly_networks.values())
-    total_edges = sum(n.get_edge_count() for n in monthly_networks.values())
-
-    print(f"Total months: {len(monthly_networks)}")
-    all_nodes = set().union(*[n.get_nodes() for n in monthly_networks.values()])
-    print(f"Total unique companies (all months): {len(all_nodes):,}")
-    print(f"Total transitions: {total_edges:,}")
-    print(f"Average transitions per month: {total_edges / len(monthly_networks):,.1f}")
-
-    print("\n--- Monthly Breakdown ---")
-    for month in sorted_months[:5]:  # Show first 5
-        net = monthly_networks[month]
-        print(f"  {month}: {net.get_node_count():,} companies, {net.get_edge_count():,} transitions")
-
-    if len(monthly_networks) > 5:
-        print(f"  ... and {len(monthly_networks) - 5} more months")
-
+    print(f"Total months: {len(saved_months)}")
+    print(f"Total transitions: {total_transitions:,}")
+    if len(saved_months) > 0:
+        print(f"Average transitions per month: {total_transitions / len(saved_months):,.1f}")
     print("=" * 70)
+
+
+def _process_single_person(
+    person_id: str,
+    timeline: CareerTimeline,
+    monthly_networks: Dict[str, FlowNetwork]
+) -> int:
+    """Process a single person's timeline and add transitions to monthly networks."""
+    transitions = timeline.identify_transitions()
+
+    for transition in transitions:
+        transition_time = transition["transition_time"]
+        from_company = transition["from_company"]
+        to_company = transition["to_company"]
+
+        # Format as YYYY-MM
+        month_key = f"{transition_time[0]:04d}-{transition_time[1]:02d}"
+
+        # Create network for this month if not exists
+        if month_key not in monthly_networks:
+            monthly_networks[month_key] = FlowNetwork.empty()
+
+        # Add the transition
+        monthly_networks[month_key].add_edge(from_company, to_company, weight=1)
+
+    return len(transitions)
+
+
+def _count_transitions_in_networks(monthly_networks: Dict[str, FlowNetwork]) -> int:
+    """Count total transitions across all monthly networks."""
+    return sum(net.get_total_flow() for net in monthly_networks.values())
+
+
+def _save_large_months(
+    monthly_networks: Dict[str, FlowNetwork],
+    saved_months: set,
+    output_path: Path
+) -> None:
+    """Save large months to free memory."""
+    import pickle
+
+    months_saved = 0
+    for month_key in list(monthly_networks.keys()):
+        if month_key not in saved_months:
+            network = monthly_networks[month_key]
+            # Save if network is large enough
+            if network.get_edge_count() > 1000:
+                filepath = output_path / f"{month_key}.pkl"
+
+                # If file exists, merge with existing data
+                if filepath.exists():
+                    with open(filepath, "rb") as f:
+                        existing_network = pickle.load(f)
+                    for source, target, weight in network.iter_edges():
+                        for _ in range(weight):
+                            existing_network.add_edge(source, target, weight=1)
+                    network = existing_network
+
+                with open(filepath, "wb") as f:
+                    pickle.dump(network, f)
+
+                saved_months.add(month_key)
+                del monthly_networks[month_key]
+                months_saved += 1
+
+    if months_saved > 0:
+        logger.info(f"Saved {months_saved} large months to free memory")
+
+
+def _save_months(
+    monthly_networks: Dict[str, FlowNetwork],
+    saved_months: set,
+    output_path: Path,
+    format: str,
+    use_tqdm: bool
+) -> None:
+    """Save all remaining monthly networks to files."""
+    import pickle
+
+    try:
+        from tqdm import tqdm
+    except ImportError:
+        use_tqdm = False
+
+    months_to_process = [m for m in monthly_networks.keys() if m not in saved_months]
+
+    if not months_to_process:
+        return
+
+    logger.info(f"Saving {len(months_to_process)} remaining months...")
+
+    month_iter = tqdm(months_to_process, desc="Saving months") if use_tqdm else months_to_process
+
+    for month_key in month_iter:
+        network = monthly_networks[month_key]
+        filepath = output_path / f"{month_key}.pkl"
+
+        # If file exists, merge with existing data
+        if filepath.exists():
+            with open(filepath, "rb") as f:
+                existing_network = pickle.load(f)
+            # Merge edges
+            for source, target, weight in network.iter_edges():
+                for _ in range(weight):
+                    existing_network.add_edge(source, target, weight=1)
+            network = existing_network
+
+        # Save the network
+        with open(filepath, "wb") as f:
+            pickle.dump(network, f)
+
+        saved_months.add(month_key)
+
+    # Clear the dictionary to free memory
+    monthly_networks.clear()
 
 
 if __name__ == "__main__":
@@ -794,47 +883,7 @@ if __name__ == "__main__":
             file_path="data/profiles_jobs_new.jsonl.gz",
             output_dir="data/flow_networks",
             format="pickle",  # or "txt"
-            max_records=100000,  # Process all records (set a number for testing)
-            use_tqdm=True
+            max_records=None,  # Process all records (set a number for testing)
+            use_tqdm=True,
+            batch_size=100000
         )
-    else:
-        # Example: Extract networks for 2020 with 6-month windows
-        file_path = "data/profiles_jobs_new.jsonl.gz"
-        start_date = "2020-01"
-        end_date = "2020-12"
-        interval_months = 6
-
-        # Test with a small subset first
-        logger.info("Running example extraction...")
-
-        networks = extract_flow_networks(
-            file_path=file_path,
-            start_date=start_date,
-            end_date=end_date,
-            interval_months=interval_months,
-            max_records=100000  # Limit for testing
-        )
-
-        print("\n" + "=" * 60)
-        print("Flow Network Extraction Summary")
-        print("=" * 60)
-        for w_start, w_end, network in networks:
-            print(f"\nWindow: {w_start} to {w_end}")
-            print(f"  Companies: {network.get_node_count():,}")
-            print(f"  Transitions: {network.get_edge_count():,}")
-            print(f"  Total Flow: {network.get_total_flow():,}")
-            print(f"  Density: {network.get_density():.4f}")
-
-            # Show top 5 flows
-            edges = sorted(
-                [(s, t, w) for s, t, w in network.iter_edges()],
-                key=lambda x: x[2],
-                reverse=True
-            )[:5]
-
-            if edges:
-                print("  Top flows:")
-                for source, target, weight in edges:
-                    print(f"    {source} -> {target}: {weight}")
-
-        print("=" * 60)
