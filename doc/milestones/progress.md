@@ -107,7 +107,7 @@ from demo.data.transforms import ZScoreScaler
 
 # 加载数据
 loader = FlowNetworkDataLoader(
-    data_dir="data/flow_networks",
+    data_dir="datasets/flow_networks",
     start_date="2017-01",
     end_date="2020-12"
 )

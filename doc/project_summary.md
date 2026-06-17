@@ -139,7 +139,7 @@ python demo/experiments/run_stgnn.py
 from demo.data import FlowNetworkDataLoader, HighWeightSelector
 
 loader = FlowNetworkDataLoader(
-    data_dir="data/flow_networks",
+    data_dir="datasets/flow_networks",
     start_date="2017-01",
     end_date="2020-12"
 )

@@ -318,7 +318,7 @@ class CompanyDirectory:
 
 
 def build_company_directory_from_file(
-    file_path: str = "data/profiles_jobs_new.jsonl.gz",
+    file_path: str = "datasets/profiles_jobs_new.jsonl.gz",
     cache_dir: str = "cache",
     max_records: Optional[int] = None,
     use_cache: bool = True
@@ -386,7 +386,7 @@ def build_company_directory_from_file(
 
 
 def build_company_directory_with_stats(
-    file_path: str = "data/profiles_jobs_new.jsonl.gz",
+    file_path: str = "datasets/profiles_jobs_new.jsonl.gz",
     start_date: str = "2019-01",
     end_date: str = "2021-12",
     interval_months: int = 6,
@@ -506,7 +506,7 @@ if __name__ == "__main__":
 
     # First, just build the basic directory (company ID -> name mapping)
     directory_basic = build_company_directory_from_file(
-        file_path="data/profiles_jobs_new.jsonl.gz",
+        file_path="datasets/profiles_jobs_new.jsonl.gz",
         max_records=100000,  # Limit for quick testing
         use_cache=True
     )
@@ -521,7 +521,7 @@ if __name__ == "__main__":
     # This requires extracting flow networks, so it takes longer
     logger.info("\nBuilding directory with flow statistics...")
     directory_with_stats = build_company_directory_with_stats(
-        file_path="data/profiles_jobs_new.jsonl.gz",
+        file_path="datasets/profiles_jobs_new.jsonl.gz",
         start_date="2019-01",
         end_date="2019-12",
         interval_months=6,

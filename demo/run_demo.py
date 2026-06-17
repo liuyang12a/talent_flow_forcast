@@ -21,7 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 # Configuration
-DATA_DIR = "data/flow_networks"
+DATA_DIR = "datasets/flow_networks"
 START_DATE = "2017-01"
 END_DATE = "2020-12"
 MODEL_TYPE = "ridge"

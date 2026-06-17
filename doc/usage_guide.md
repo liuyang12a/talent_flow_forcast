@@ -42,7 +42,7 @@ uv pip install torch statsmodels networkx python-louvain
 from demo.data import FlowNetworkDataLoader
 
 loader = FlowNetworkDataLoader(
-    data_dir="data/flow_networks",
+    data_dir="datasets/flow_networks",
     start_date="2017-01",
     end_date="2020-12"
 )

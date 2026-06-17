@@ -573,7 +573,7 @@ class ForecastingPipeline:
 def main():
     """Main entry point for demonstration."""
     # Configuration
-    DATA_DIR = "data/flow_networks"
+    DATA_DIR = "datasets/flow_networks"
     MODEL_TYPE = "ridge"  # Options: ridge, lasso, rf, gb
     LOOKBACK_WINDOW = 6   # Use 6 months history
     FORECAST_HORIZON = 1  # Predict 1 month ahead

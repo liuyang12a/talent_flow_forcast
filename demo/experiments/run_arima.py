@@ -31,7 +31,7 @@ def main():
     print("=" * 60)
 
     # Configuration
-    DATA_DIR = "data/flow_networks"
+    DATA_DIR = "datasets/flow_networks"
     START_DATE = "2017-01"
     END_DATE = "2020-12"
     INPUT_LEN = 6

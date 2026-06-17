@@ -568,7 +568,7 @@ def extract_monthly_flow_networks(
 
 def save_monthly_flow_networks(
     monthly_networks: Dict[str, FlowNetwork],
-    output_dir: str = "data/flow_networks",
+    output_dir: str = "datasets/flow_networks",
     format: str = "pickle"
 ) -> None:
     """
@@ -612,8 +612,8 @@ def save_monthly_flow_networks(
 
 
 def build_and_save_monthly_flow_networks(
-    file_path: str = "data/profiles_jobs_new.jsonl.gz",
-    output_dir: str = "data/flow_networks",
+    file_path: str = "datasets/profiles_jobs_new.jsonl.gz",
+    output_dir: str = "datasets/flow_networks",
     format: str = "pickle",
     max_records: Optional[int] = None,
     use_tqdm: bool = True,
@@ -880,8 +880,8 @@ if __name__ == "__main__":
         logger.info("Running monthly flow network extraction...")
 
         build_and_save_monthly_flow_networks(
-            file_path="data/profiles_jobs_new.jsonl.gz",
-            output_dir="data/flow_networks",
+            file_path="datasets/profiles_jobs_new.jsonl.gz",
+            output_dir="datasets/flow_networks",
             format="pickle",  # or "txt"
             max_records=None,  # Process all records (set a number for testing)
             use_tqdm=True,

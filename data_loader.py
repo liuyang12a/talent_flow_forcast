@@ -171,7 +171,7 @@ class DataLoader:
             JobRecord objects one at a time
 
         Example:
-            >>> loader = DataLoader("data/profiles_jobs_new.jsonl.gz")
+            >>> loader = DataLoader("datasets/profiles_jobs_new.jsonl.gz")
             >>> for record in loader.iter_records():
             ...     print(record.title_name)
         """
@@ -199,7 +199,7 @@ class DataLoader:
             Lists of JobRecord objects with size up to batch_size
 
         Example:
-            >>> loader = DataLoader("data/profiles_jobs_new.jsonl.gz", batch_size=1000)
+            >>> loader = DataLoader("datasets/profiles_jobs_new.jsonl.gz", batch_size=1000)
             >>> for batch in loader.iter_batches():
             ...     process_batch(batch)
         """
@@ -239,7 +239,7 @@ class DataLoader:
             Iterator over filtered JobRecord objects
 
         Example:
-            >>> loader = DataLoader("data/profiles_jobs_new.jsonl.gz")
+            >>> loader = DataLoader("datasets/profiles_jobs_new.jsonl.gz")
             >>> current_jobs = loader.filter_records(lambda r: r.is_current)
         """
         for record in self.iter_records():
@@ -304,7 +304,7 @@ class DataLoader:
 
 
 def load_data(
-    file_path: str = "data/profiles_jobs_new.jsonl.gz",
+    file_path: str = "datasets/profiles_jobs_new.jsonl.gz",
     batch_size: int = 1000,
     skip_errors: bool = True,
 ) -> DataLoader:
