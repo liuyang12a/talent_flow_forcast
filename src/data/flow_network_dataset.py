@@ -12,7 +12,7 @@ import pickle
 import logging
 import numpy as np
 
-from demo.data.base_dataset import BaseDataset, DatasetConfig
+from src.data.base_dataset import BaseDataset, DatasetConfig
 
 logger = logging.getLogger(__name__)
 

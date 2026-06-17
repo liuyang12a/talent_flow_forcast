@@ -114,7 +114,7 @@ class BaseTimeSeriesModel(ABC):
         Returns:
             Dictionary of metric names to values
         """
-        from demo.utils.metrics import calculate_metrics
+        from src.utils.metrics import calculate_metrics
 
         predictions = self.predict(X, **kwargs)
         return calculate_metrics(y, predictions, metrics)
@@ -341,7 +341,9 @@ class BaseDeepLearningModel(BaseTimeSeriesModel, nn.Module):
         import torch
         from torch.utils.data import DataLoader, TensorDataset
 
-        self.model.eval()
+        # Use self.model if set, otherwise use self (for models that are their own nn.Module)
+        model = self.model if self.model is not None else self
+        model.eval()
 
         dataset = TensorDataset(self._to_tensor(X))
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
@@ -350,7 +352,7 @@ class BaseDeepLearningModel(BaseTimeSeriesModel, nn.Module):
         with torch.no_grad():
             for batch in loader:
                 batch_x = batch[0]
-                pred = self.model(batch_x)
+                pred = model(batch_x)
                 predictions.append(pred.cpu().numpy())
 
         return np.concatenate(predictions, axis=0)

@@ -13,7 +13,7 @@
 - 安装statsmodels、networkx、python-louvain等依赖
 
 ### 1. 数据模块重构 ✅
-创建 `demo/data/` 模块：
+创建 `src/data/` 模块：
 - **base_dataset.py** - 数据集基类
   - `BaseDataset`: 抽象基类定义统一接口
   - `TimeSeriesDataset`: 通用时序数据集
@@ -48,11 +48,11 @@
     - 统一的训练循环框架
 
 ### 4. 经典模型实现 ✅
-- **统计模型** (`demo/models/statistical/arima.py`)
+- **统计模型** (`src/models/statistical/arima.py`)
   - `ARIMAModel`: ARIMA模型，支持(p,d,q)参数
   - `AutoARIMAModel`: 自动参数选择（基于pmdarima）
 
-- **深度学习模型** (`demo/models/deep_learning/`)
+- **深度学习模型** (`src/models/deep_learning/`)
   - `layers.py`: 神经网络层实现
     - `GraphConvolution`: 图卷积层（GCN）
     - `ChebyshevGraphConvolution`: Chebyshev多项式图卷积
@@ -78,7 +78,7 @@
 ## 项目结构
 
 ```
-demo/
+src/
 ├── data/                           # 数据模块
 │   ├── __init__.py
 │   ├── base_dataset.py            # 数据集基类

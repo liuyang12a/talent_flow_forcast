@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import logging
 
-from demo.models.base_model import BaseStatisticalModel
+from src.models.base_model import BaseStatisticalModel
 
 logger = logging.getLogger(__name__)
 

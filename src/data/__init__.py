@@ -1,8 +1,8 @@
 """Data module initialization."""
 
-from demo.data.base_dataset import BaseDataset, DatasetConfig, TimeSeriesDataset, SpatialTemporalDataset
-from demo.data.flow_network_dataset import FlowNetworkDataset, FlowNetworkDataLoader
-from demo.data.transforms import (
+from src.data.base_dataset import BaseDataset, DatasetConfig, TimeSeriesDataset, SpatialTemporalDataset
+from src.data.flow_network_dataset import FlowNetworkDataset, FlowNetworkDataLoader
+from src.data.transforms import (
     BaseScaler,
     ZScoreScaler,
     MinMaxScaler,
@@ -10,7 +10,7 @@ from demo.data.transforms import (
     SlidingWindowTransform,
     TimeFeatureEncoder,
 )
-from demo.data.selectors import (
+from src.data.selectors import (
     BaseSelector,
     HighWeightSelector,
     HubNodeSelector,

@@ -14,7 +14,7 @@ def test_imports():
     print("Testing imports...")
 
     try:
-        from demo.data import (
+        from src.data import (
             BaseDataset, DatasetConfig, TimeSeriesDataset, SpatialTemporalDataset,
             FlowNetworkDataset, FlowNetworkDataLoader,
             ZScoreScaler, MinMaxScaler, SlidingWindowTransform, TimeFeatureEncoder,
@@ -26,7 +26,7 @@ def test_imports():
         return False
 
     try:
-        from demo.models import (
+        from src.models import (
             BaseTimeSeriesModel, BaseStatisticalModel, BaseDeepLearningModel
         )
         print("  [OK] Model base imports successful")
@@ -35,7 +35,7 @@ def test_imports():
         return False
 
     try:
-        from demo.models.statistical import ARIMAModel
+        from src.models.statistical import ARIMAModel
         print("  [OK] ARIMA model import successful")
     except Exception as e:
         print(f"  [FAIL] ARIMA model import failed: {e}")
@@ -43,14 +43,14 @@ def test_imports():
 
     try:
         import torch
-        from demo.models.deep_learning import STGNNModel
+        from src.models.deep_learning import STGNNModel
         print("  [OK] STGNN model import successful")
     except Exception as e:
         print(f"  [FAIL] STGNN model import failed: {e}")
         return False
 
     try:
-        from demo.utils import calculate_metrics, mae, rmse, mape
+        from src.utils import calculate_metrics, mae, rmse, mape
         print("  [OK] Utils imports successful")
     except Exception as e:
         print(f"  [FAIL] Utils import failed: {e}")
@@ -64,7 +64,7 @@ def test_data_module():
     print("\nTesting data module...")
 
     import numpy as np
-    from demo.data import DatasetConfig, TimeSeriesDataset, ZScoreScaler
+    from src.data import DatasetConfig, TimeSeriesDataset, ZScoreScaler
 
     try:
         # Create dummy data
@@ -107,7 +107,7 @@ def test_arima():
     print("\nTesting ARIMA model...")
 
     import numpy as np
-    from demo.models.statistical import ARIMAModel
+    from src.models.statistical import ARIMAModel
 
     try:
         # Create simple synthetic data
@@ -140,7 +140,7 @@ def test_stgnn():
 
     import torch
     import numpy as np
-    from demo.models.deep_learning import STGNNModel
+    from src.models.deep_learning import STGNNModel
 
     try:
         # Create small test case
@@ -185,7 +185,7 @@ def test_metrics():
     print("\nTesting metrics...")
 
     import numpy as np
-    from demo.utils import calculate_metrics
+    from src.utils import calculate_metrics
 
     try:
         pred = np.array([1.0, 2.0, 3.0, 4.0])

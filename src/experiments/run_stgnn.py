@@ -15,9 +15,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import logging
 import numpy as np
 
-from demo.data import FlowNetworkDataLoader, HighWeightSelector
-from demo.data.transforms import ZScoreScaler
-from demo.models.deep_learning import STGNNModel
+from src.data import FlowNetworkDataLoader, HighWeightSelector
+from src.data.transforms import ZScoreScaler
+from src.models.deep_learning import STGNNModel
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -164,7 +164,7 @@ def main():
     pred_flat = predictions.flatten()
     target_flat = y_test.flatten()
 
-    from demo.utils.metrics import calculate_metrics
+    from src.utils.metrics import calculate_metrics
     metrics = calculate_metrics(target_flat, pred_flat)
 
     print("\n" + "=" * 60)

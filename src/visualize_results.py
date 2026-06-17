@@ -17,7 +17,7 @@ matplotlib.use('Agg')  # Non-interactive backend
 import matplotlib.pyplot as plt
 
 
-def load_results(results_dir: str = "demo/output") -> tuple:
+def load_results(results_dir: str = "src/output") -> tuple:
     """Load predictions and metrics from output files."""
     results_path = Path(results_dir)
 
@@ -39,7 +39,7 @@ def format_flow_key(source, target) -> str:
 
 def plot_time_series_predictions(
     predictions: List[Dict],
-    output_path: str = "demo/output/forecast_plots.png",
+    output_path: str = "src/output/forecast_plots.png",
     n_samples: int = 4
 ):
     """
@@ -99,7 +99,7 @@ def plot_time_series_predictions(
 
 def plot_error_distribution(
     predictions: List[Dict],
-    output_path: str = "demo/output/error_distribution.png"
+    output_path: str = "src/output/error_distribution.png"
 ):
     """
     Plot error distribution histogram.
@@ -150,7 +150,7 @@ def plot_error_distribution(
 
 def plot_metrics_comparison(
     metrics: Dict[str, Dict],
-    output_path: str = "demo/output/metrics_comparison.png"
+    output_path: str = "src/output/metrics_comparison.png"
 ):
     """
     Plot comparison of metrics across flows.
@@ -217,7 +217,7 @@ def plot_metrics_comparison(
 
 def plot_scatter_actual_vs_predicted(
     predictions: List[Dict],
-    output_path: str = "demo/output/scatter_plot.png"
+    output_path: str = "src/output/scatter_plot.png"
 ):
     """
     Plot scatter plot of actual vs predicted values.
@@ -268,7 +268,7 @@ def plot_scatter_actual_vs_predicted(
 def generate_summary_report(
     predictions: List[Dict],
     metrics: Dict[str, Dict],
-    output_path: str = "demo/output/summary_report.txt"
+    output_path: str = "src/output/summary_report.txt"
 ):
     """Generate text summary report."""
 

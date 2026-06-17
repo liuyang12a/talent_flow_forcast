@@ -1,6 +1,6 @@
 """Utils module initialization."""
 
-from demo.utils.metrics import (
+from src.utils.metrics import (
     mae,
     mse,
     rmse,

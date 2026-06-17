@@ -1,6 +1,6 @@
 """Models module initialization."""
 
-from demo.models.base_model import (
+from src.models.base_model import (
     BaseTimeSeriesModel,
     BaseStatisticalModel,
     BaseDeepLearningModel,

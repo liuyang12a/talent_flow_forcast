@@ -39,7 +39,7 @@ uv pip install torch statsmodels networkx python-louvain
 #### 加载数据
 
 ```python
-from demo.data import FlowNetworkDataLoader
+from src.data import FlowNetworkDataLoader
 
 loader = FlowNetworkDataLoader(
     data_dir="datasets/flow_networks",
@@ -54,7 +54,7 @@ print(f"Loaded {len(networks)} monthly networks")
 #### 选择典型序列
 
 ```python
-from demo.data import HighWeightSelector, HubNodeSelector, CommunitySelector
+from src.data import HighWeightSelector, HubNodeSelector, CommunitySelector
 
 # 选择高权重边
 selector = HighWeightSelector(top_k=50, min_months=6)
@@ -79,7 +79,7 @@ comm_edges = comm_selector.select(networks)
 #### 创建数据集
 
 ```python
-from demo.data.transforms import ZScoreScaler
+from src.data.transforms import ZScoreScaler
 
 scaler = ZScoreScaler()
 train_ds, val_ds, test_ds = loader.create_datasets(

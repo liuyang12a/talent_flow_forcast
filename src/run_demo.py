@@ -6,7 +6,7 @@ This script provides a unified interface to run the forecasting pipeline
 on existing flow network data (2017-01 to 2021-12).
 
 Usage:
-    uv run python demo/run_demo.py [command]
+    uv run python src/run_demo.py [command]
 
 Commands:
     all         - Run complete demo (forecast + visualize)
@@ -98,10 +98,10 @@ def run_all():
         print("DEMO COMPLETE!")
         print("=" * 60)
         print("\nGenerated files:")
-        print("  - demo/output/metrics.json")
-        print("  - demo/output/predictions.json")
-        print("  - demo/output/*.png (visualizations)")
-        print("  - demo/output/summary_report.txt")
+        print("  - src/output/metrics.json")
+        print("  - src/output/predictions.json")
+        print("  - src/output/*.png (visualizations)")
+        print("  - src/output/summary_report.txt")
         print("=" * 60)
     else:
         print("\nNo results generated. Please check data availability.")

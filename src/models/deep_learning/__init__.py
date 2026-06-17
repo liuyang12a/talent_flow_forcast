@@ -1,7 +1,7 @@
 """Deep learning models module."""
 
-from demo.models.deep_learning.stgnn import STGNNModel, STGraphEncoder
-from demo.models.deep_learning.layers import (
+from src.models.deep_learning.stgnn import STGNNModel, STGraphEncoder
+from src.models.deep_learning.layers import (
     GraphConvolution,
     ChebyshevGraphConvolution,
     GraphAttentionLayer,

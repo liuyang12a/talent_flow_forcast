@@ -16,9 +16,9 @@ import logging
 import numpy as np
 from datetime import datetime
 
-from demo.data import FlowNetworkDataLoader, HighWeightSelector
-from demo.data.transforms import ZScoreScaler
-from demo.models.statistical import ARIMAModel
+from src.data import FlowNetworkDataLoader, HighWeightSelector
+from src.data.transforms import ZScoreScaler
+from src.models.statistical import ARIMAModel
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -141,7 +141,7 @@ def main():
 
     # Calculate metrics
     if all_predictions:
-        from demo.utils.metrics import calculate_metrics
+        from src.utils.metrics import calculate_metrics
 
         all_predictions = np.array(all_predictions)
         all_targets = np.array(all_targets)

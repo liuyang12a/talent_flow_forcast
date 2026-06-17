@@ -12,8 +12,8 @@ import torch.nn.functional as F
 import numpy as np
 import logging
 
-from demo.models.base_model import BaseDeepLearningModel
-from demo.models.deep_learning.layers import (
+from src.models.base_model import BaseDeepLearningModel
+from src.models.deep_learning.layers import (
     GraphConvolution,
     ChebyshevGraphConvolution,
     TemporalConvolution,
@@ -350,7 +350,7 @@ class STGNNModel(BaseDeepLearningModel):
             learning_rate: Learning rate
             early_stopping_patience: Patience for early stopping
         """
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
+        optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate)
         criterion = nn.MSELoss()
 
         best_val_loss = float('inf')
@@ -358,7 +358,7 @@ class STGNNModel(BaseDeepLearningModel):
 
         for epoch in range(epochs):
             # Training
-            self.model.train()
+            self.train()
             train_loss = 0.0
 
             for batch_x, batch_y in train_loader:
@@ -366,7 +366,7 @@ class STGNNModel(BaseDeepLearningModel):
                 batch_y = batch_y.to(self.device)
 
                 optimizer.zero_grad()
-                output = self.model(batch_x)
+                output = self(batch_x)
                 loss = criterion(output, batch_y)
                 loss.backward()
                 optimizer.step()
@@ -377,7 +377,7 @@ class STGNNModel(BaseDeepLearningModel):
 
             # Validation
             if val_loader is not None:
-                self.model.eval()
+                self.eval()
                 val_loss = 0.0
 
                 with torch.no_grad():
@@ -385,7 +385,7 @@ class STGNNModel(BaseDeepLearningModel):
                         batch_x = batch_x.to(self.device)
                         batch_y = batch_y.to(self.device)
 
-                        output = self.model(batch_x)
+                        output = self(batch_x)
                         loss = criterion(output, batch_y)
                         val_loss += loss.item()
 

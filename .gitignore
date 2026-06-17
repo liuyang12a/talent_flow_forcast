@@ -67,3 +67,7 @@ logs/
 .claude/
 
 **/output/
+
+# Experiment checkpoints and results
+ckpt/
+demo_output/
