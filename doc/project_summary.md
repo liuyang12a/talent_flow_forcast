@@ -7,7 +7,7 @@
 ## 完成的功能
 
 ### 0. 深度学习环境配置 ✅
-- 创建Python 3.11虚拟环境 `.venv-torch`
+- 创建Python 3.11虚拟环境 `.venv`
 - 安装PyTorch 2.5.1 + CUDA 12.1
 - 验证RTX 4060 Laptop GPU可用
 - 安装statsmodels、networkx、python-louvain等依赖
@@ -114,7 +114,7 @@ doc/                               # 文档目录
 
 ### 环境激活
 ```bash
-.venv-torch\Scripts\activate
+.venv\Scripts\activate
 ```
 
 ### 运行测试

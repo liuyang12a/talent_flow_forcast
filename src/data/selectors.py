@@ -13,6 +13,8 @@ from collections import defaultdict
 import numpy as np
 import logging
 
+from flow_network import FlowNetwork
+
 logger = logging.getLogger(__name__)
 
 
@@ -127,8 +129,9 @@ class HubNodeSelector(BaseSelector):
         Initialize hub node selector.
 
         Args:
-            hub_threshold: Minimum degree to be considered a hub.
-                          If float in (0, 1), treated as percentile.
+            hub_threshold: If int, minimum degree to be considered a hub.
+                          If float in (0, 1), fraction of nodes to select
+                          from the top (e.g. 0.2 = top 20%, 1e-3 = top 0.1%).
             max_edges_per_hub: Maximum edges to select per hub node
             degree_type: Type of degree ('in', 'out', or 'total')
             selection_mode: Which edges to select ('in', 'out', or 'both')
@@ -142,17 +145,22 @@ class HubNodeSelector(BaseSelector):
         self,
         networks: Dict[str, "FlowNetwork"]
     ) -> Dict[Union[int, str], Dict[str, int]]:
-        """Compute in, out, and total degrees for all nodes."""
+        """
+        Compute in, out, and total degrees for all nodes.
+
+        Iterates edges directly (O(T * E)) instead of calling per-node
+        get_in_degree/get_out_degree (which would be O(T * N * E)).
+        """
         degrees = defaultdict(lambda: {'in': 0, 'out': 0, 'total': 0})
 
         for network in networks.values():
-            for node in network.get_nodes():
-                in_deg = network.get_in_degree(node)
-                out_deg = network.get_out_degree(node)
-
-                degrees[node]['in'] += in_deg
-                degrees[node]['out'] += out_deg
-                degrees[node]['total'] += in_deg + out_deg
+            for (source, target), weight in network.get_edges().items():
+                # Source contributes out-degree
+                degrees[source]['out'] += weight
+                degrees[source]['total'] += weight
+                # Target contributes in-degree
+                degrees[target]['in'] += weight
+                degrees[target]['total'] += weight
 
         return degrees
 
@@ -174,8 +182,10 @@ class HubNodeSelector(BaseSelector):
 
         # Determine hub threshold
         if isinstance(self.hub_threshold, float) and 0 < self.hub_threshold < 1:
+            # hub_threshold=0.2 → top 20% → threshold at 80th percentile
+            # hub_threshold=1e-3 → top 0.1% → threshold at 99.9th percentile
             all_degrees = [d[self.degree_type] for d in degrees.values()]
-            threshold = np.percentile(all_degrees, self.hub_threshold * 100)
+            threshold = np.percentile(all_degrees, (1 - self.hub_threshold) * 100)
         else:
             threshold = self.hub_threshold
 

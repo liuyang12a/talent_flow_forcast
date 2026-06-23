@@ -133,10 +133,10 @@ talent_flow_forcast/
 cd talent_flow_forcast
 
 # 2. 创建Python 3.11虚拟环境
-uv venv .venv-torch --python 3.11
+uv venv .venv --python 3.11
 
 # 3. 激活环境
-.venv-torch\Scripts\activate  # Windows
+.venv\Scripts\activate  # Windows
 
 # 4. 安装依赖
 uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121

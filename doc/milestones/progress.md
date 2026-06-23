@@ -13,7 +13,7 @@
 
 ### ✅ Milestone 1: 深度学习环境配置 (Phase 0)
 - [x] 检查当前系统CUDA状态
-- [x] 创建Python 3.11虚拟环境 (.venv-torch)
+- [x] 创建Python 3.11虚拟环境 (.venv)
 - [x] 使用uv安装PyTorch (CUDA 12.1版本) - 成功安装2.5.1+cu121
 - [x] 安装statsmodels、networkx、python-louvain
 - [x] 验证GPU可用性 - RTX 4060 Laptop GPU识别成功
@@ -107,7 +107,7 @@
 ### 环境激活
 ```bash
 # 使用深度学习环境（推荐）
-.venv-torch\Scripts\activate
+.venv\Scripts\activate
 
 # 或使用原环境
 .venv\Scripts\activate
@@ -115,18 +115,18 @@
 
 ### 运行ARIMA实验
 ```bash
-uv run --python .venv-torch\Scripts\python python src/experiments/run_arima.py
+uv run --python .venv\Scripts\python python src/experiments/run_arima.py
 ```
 
 ### 运行STGNN实验
 ```bash
-uv run --python .venv-torch\Scripts\python python src/experiments/run_stgnn.py
+uv run --python .venv\Scripts\python python src/experiments/run_stgnn.py
 ```
 
 ### 运行对比实验（scripts目录）
 ```bash
 # 激活环境
-.venv-torch\Scripts\activate
+.venv\Scripts\activate
 
 # 生成实验时间序列
 python scripts/run_experiments.py --phase generate

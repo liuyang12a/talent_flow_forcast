@@ -16,7 +16,7 @@
 
 ```bash
 # 激活深度学习环境（Windows）
-.venv-torch\Scripts\activate
+.venv\Scripts\activate
 
 # 验证CUDA可用
 python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
@@ -267,7 +267,7 @@ class MyModel(BaseStatisticalModel):
 
 确保使用正确的虚拟环境：
 ```bash
-.venv-torch\Scripts\activate
+.venv\Scripts\activate
 python -c "import torch; print(torch.cuda.is_available())"
 ```
 

@@ -38,8 +38,8 @@ SELECTOR_CONFIG = {
         "exclude_self_loops": True
     },
     "hub_nodes": {
-        "hub_threshold": 10,
-        "max_edges_per_hub": 50,
+        "hub_threshold": 1e-3,
+        "max_edges_per_hub": 20,
         "degree_type": "total",
         "selection_mode": "both",
         "max_total": 300  # Upper limit
@@ -50,6 +50,32 @@ SELECTOR_CONFIG = {
         "max_communities": 5,      # Reduced
         "edge_selection": "internal",
         "max_total": 300  # Upper limit
+    },
+    "dense_core": {
+        # Spatial core extraction
+        # ── calibrated via `python -m scripts.analysis.network_diagnostics` ──
+        #     Coverage @  50 nodes: 11.55%
+        #     Coverage @ 100 nodes: 17.32%
+        #     Coverage @ 200 nodes: 24.54%
+        #     Recommended max_nodes           = 253
+        #     Recommended target_coverage     = 0.27
+        #     Recommended min_activity_ratio  = 0.01
+        "spatial_strategy": "flow_core",    # "flow_core" | "k_core" | "greedy_density"
+        "max_nodes": 250,                     # diagnostics recommended 253 → rounded
+        "min_nodes": 20,                      # safety floor
+        "target_coverage": 0.27,              # matches ~250-node elbow
+        # Temporal density filtering
+        # NOTE: 99.9% of edges appear in only 1 of 132 months (rho≈0.008).
+        # Even the most active decile (P90) has rho=0.008.  Thresholds are
+        # therefore set to only discard truly negligible edges (<2 months).
+        "min_activity_ratio": 0.01,           # retain edges present in ≥2 months
+        "max_allowed_gap": 120,               # effectively no gap filter
+        "min_temporal_score": 0.001,          # composite floor for extreme sparsity
+        # Tensor output
+        "tensor_type": "edge_centric",        # "edge_centric" (default) | "node_centric"
+        "adj_type": "shared_node",            # "shared_node" | "temporal_correlation"
+        "node_features": None,                # Only used by node_centric mode
+        "exclude_self_loops": True,
     }
 }
 

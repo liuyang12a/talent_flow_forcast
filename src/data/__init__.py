@@ -17,6 +17,17 @@ from src.data.selectors import (
     CommunitySelector,
     CompositeSelector,
 )
+from src.data.dense_subgraph import (
+    DenseSubgraphConfig,
+    DenseSubgraphExtractor,
+    DenseSubgraphResult,
+    NodeStats,
+    EdgeStats,
+    QualityMetrics,
+    BaseTensorBuilder,
+    EdgeCentricTensorBuilder,
+    NodeCentricTensorBuilder,
+)
 
 __all__ = [
     # Datasets
@@ -39,4 +50,14 @@ __all__ = [
     'HubNodeSelector',
     'CommunitySelector',
     'CompositeSelector',
+    # Dense Subgraph
+    'DenseSubgraphConfig',
+    'DenseSubgraphExtractor',
+    'DenseSubgraphResult',
+    'NodeStats',
+    'EdgeStats',
+    'QualityMetrics',
+    'BaseTensorBuilder',
+    'EdgeCentricTensorBuilder',
+    'NodeCentricTensorBuilder',
 ]

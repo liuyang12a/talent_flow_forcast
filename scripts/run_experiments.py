@@ -19,6 +19,7 @@ import json
 import pickle
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Tuple, Optional
@@ -35,7 +36,10 @@ from scripts.analysis import (
     SeriesAnalyzer, ModelComparator, ReportGenerator
 )
 
-from src.data import FlowNetworkDataLoader, HighWeightSelector, HubNodeSelector, CommunitySelector
+from src.data import (
+    FlowNetworkDataLoader, HighWeightSelector, HubNodeSelector, CommunitySelector,
+    DenseSubgraphConfig, DenseSubgraphExtractor, BaseTensorBuilder,
+)
 from src.data.transforms import ZScoreScaler
 from src.models.statistical import ARIMAModel
 from src.models.deep_learning import STGNNModel
@@ -169,7 +173,127 @@ strategies, and saves the time series data.
             # Save to disk
             self._save_series_data(selector_name)
 
+        # ── dense_core: separate pipeline ──────────────────────────
+        if 'dense_core' in SELECTOR_CONFIG:
+            self._generate_dense_core_series(networks, scaler)
+
         logger.info("\nPhase 1 completed. Series data generated and saved.")
+
+    def _generate_dense_core_series(
+        self,
+        networks: Dict,
+        scaler: ZScoreScaler,
+    ) -> None:
+        """Generate series using the dense-core extraction pipeline.
+
+        This is separate from the traditional selector loop because
+        dense_core jointly optimises spatial and temporal density
+        rather than simply ranking edges.
+        """
+        logger.info(f"\nProcessing dense_core selector...")
+
+        cfg = SELECTOR_CONFIG['dense_core']
+        selector_name = 'dense_core'
+
+        # Build config and tensor builder from the selector config dict
+        dense_config = DenseSubgraphConfig(
+            spatial_strategy=cfg.get('spatial_strategy', 'flow_core'),
+            max_nodes=cfg.get('max_nodes', 200),
+            min_nodes=cfg.get('min_nodes', 20),
+            target_coverage=cfg.get('target_coverage', 0.80),
+            min_activity_ratio=cfg.get('min_activity_ratio', 0.30),
+            max_allowed_gap=cfg.get('max_allowed_gap', 12),
+            min_temporal_score=cfg.get('min_temporal_score', 0.25),
+            tensor_type=cfg.get('tensor_type', 'edge_centric'),
+            adj_type=cfg.get('adj_type', 'shared_node'),
+            node_features=cfg.get('node_features'),
+            exclude_self_loops=cfg.get('exclude_self_loops', True),
+        )
+        tensor_builder = BaseTensorBuilder.from_config(cfg)
+
+        extractor = DenseSubgraphExtractor(dense_config, tensor_builder)
+        result = extractor.extract(networks)
+
+        if result.tensor is None or len(result.edges) == 0:
+            logger.warning("dense_core produced no edges — skipping.")
+            return
+
+        timestamps = sorted(networks.keys())
+        tensor_type = cfg.get('tensor_type', 'edge_centric')
+
+        if tensor_type == 'node_centric':
+            # tensor: [T, N, C]
+            # Build series_dict: one 1-D series per (node, feature) pair
+            N = result.tensor.shape[1]
+            C = result.tensor.shape[2]
+            features = cfg.get('node_features') or ['net_flow']
+            series_dict = {}
+            for n in range(N):
+                for c in range(C):
+                    feat_name = features[c] if c < len(features) else f"feat_{c}"
+                    series_dict[f"node_{n}_{feat_name}"] = result.tensor[:, n, c]
+
+            self.series_data[selector_name] = {
+                'edges': list(result.nodes),       # recycled as "node list"
+                'timestamps': timestamps,
+                'series_matrix': result.tensor,     # [T, N, C]
+                'series_dict': series_dict,
+                'quality': result.quality,
+                'metadata': result.metadata,
+            }
+        else:
+            # edge_centric (default): tensor [T, E, 1]
+            series_matrix_2d = result.tensor[:, :, 0]  # squeeze to [T, E]
+
+            self.series_data[selector_name] = {
+                'edges': result.edges,
+                'timestamps': timestamps,
+                'series_matrix': series_matrix_2d,
+                'series_dict': {
+                    f"edge_{i}": series_matrix_2d[:, i]
+                    for i in range(len(result.edges))
+                },
+                'quality': result.quality,
+                'metadata': result.metadata,
+            }
+
+        # Analyze characteristics (on the 1-D series)
+        logger.info(f"Analyzing series characteristics for {selector_name}...")
+        analyzer = SeriesAnalyzer(period=12)
+        characteristics = analyzer.analyze_series_collection(
+            self.series_data[selector_name]['series_dict']
+        )
+        self.series_characteristics[selector_name] = characteristics
+
+        # Use the pre-built adjacency from the extractor
+        self.adjacency_matrices[selector_name] = result.adjacency
+
+        # Apply ZScore scaler to the 2-D matrix for downstream models
+        if tensor_type == 'edge_centric':
+            series_2d = self.series_data[selector_name]['series_matrix']  # [T, E]
+            scaler.fit(series_2d)
+            normalized = scaler.transform(series_2d)
+            self.series_data[selector_name]['series_matrix'] = normalized
+            # Update series_dict with normalized values
+            self.series_data[selector_name]['series_dict'] = {
+                f"edge_{i}": normalized[:, i]
+                for i in range(normalized.shape[1])
+            }
+
+        # Save to disk
+        self._save_series_data(selector_name)
+
+        # Log quality report
+        q = result.quality
+        if q:
+            logger.info(
+                "dense_core quality: nodes=%d edges=%d density=%.4f "
+                "coverage=%.2f%% mean_activity=%.3f median_activity=%.3f "
+                "low_activity_pct=%.1f%% mean_max_gap=%.1f",
+                q.node_count, q.edge_count, q.spatial_density,
+                100 * q.flow_coverage, q.mean_activity, q.median_activity,
+                100 * q.low_activity_pct, q.mean_max_gap,
+            )
 
     def _build_adjacency_matrix(
         self,
@@ -227,6 +351,18 @@ strategies, and saves the time series data.
         # Save adjacency matrix
         np.save(output_dir / 'adjacency_matrix.npy', self.adjacency_matrices[selector_name])
 
+        # Save quality metrics (dense_core only)
+        if 'quality' in data and data['quality'] is not None:
+            from dataclasses import asdict
+            qual_dict = asdict(data['quality'])
+            with open(output_dir / 'quality_metrics.json', 'w') as f:
+                json.dump(qual_dict, f, indent=2)
+
+        # Save metadata (dense_core only)
+        if 'metadata' in data and data['metadata']:
+            with open(output_dir / 'metadata.json', 'w') as f:
+                json.dump(data['metadata'], f, indent=2)
+
         logger.info(f"Saved {selector_name} data to {output_dir}")
 
     def _load_series_data(self, selector_name: str) -> bool:
@@ -280,7 +416,7 @@ strategies, and saves the time series data.
 
         # Load series data if not already loaded
         if not self.series_data:
-            for selector_name in ['high_weight', 'hub_nodes', 'communities']:
+            for selector_name in ['high_weight', 'hub_nodes', 'communities', 'dense_core']:
                 if self._load_series_data(selector_name):
                     logger.info(f"Loaded {selector_name} series data from disk")
 
@@ -332,28 +468,37 @@ strategies, and saves the time series data.
 
         Args:
             selector_name: Name of the selector type
-            edges: List of edges
-            series_matrix: Matrix of time series
+            edges: List of edges (or nodes for node_centric tensors)
+            series_matrix: Matrix of time series [T, E] or [T, N, C]
             input_len: Input sequence length
             output_len: Output sequence length
         """
         logger.info(f"  Running ARIMA experiments...")
 
+        # If node_centric [T, N, C], flatten to [T, N*C]
+        is_node_centric = series_matrix.ndim == 3
+        if is_node_centric:
+            N, C = series_matrix.shape[1], series_matrix.shape[2]
+            series_2d = series_matrix.reshape(series_matrix.shape[0], N * C)
+            logger.info(f"  Flattened node_centric [T,{N},{C}] → [T,{N*C}]")
+        else:
+            series_2d = series_matrix
+
         # Split data
-        n_samples = series_matrix.shape[0]
+        n_samples = series_2d.shape[0]
         train_size = int(n_samples * DATA_CONFIG['train_ratio'])
         val_size = int(n_samples * DATA_CONFIG['val_ratio'])
 
-        train_data = series_matrix[:train_size]
-        val_data = series_matrix[train_size:train_size + val_size]
-        test_data = series_matrix[train_size + val_size:]
+        train_data = series_2d[:train_size]
+        val_data = series_2d[train_size:train_size + val_size]
+        test_data = series_2d[train_size + val_size:]
 
         if len(test_data) < input_len + output_len:
             logger.warning(f"  Not enough test data for ARIMA")
             return
 
         # Train and evaluate for each series
-        for i in range(len(edges)):
+        for i in range(series_2d.shape[1]):
             series_id = f"{selector_name}_edge_{i}"
             series_train = train_data[:, i]
             series_test = test_data[:, i]
@@ -388,12 +533,14 @@ strategies, and saves the time series data.
 
                     if metrics['mae'] < best_mae:
                         best_mae = metrics['mae']
+                        edge_label = (edges[i] if i < len(edges)
+                                      else str(i))
                         best_result = {
                             'series_id': series_id,
                             'model_type': 'arima',
                             'selector_type': selector_name,
                             'edge_idx': i,
-                            'edge': edges[i],
+                            'edge': edge_label,
                             'input_len': input_len,
                             'output_len': output_len,
                             'config': {'order': order},
@@ -436,21 +583,35 @@ strategies, and saves the time series data.
         """
         logger.info(f"  Running STGNN experiments...")
 
-        # Limit nodes for STGNN to avoid memory issues
-        max_nodes = 50
-        if len(edges) > max_nodes:
-            logger.info(f"  Limiting STGNN to {max_nodes} nodes")
-            edges = edges[:max_nodes]
-            series_matrix = series_matrix[:, :max_nodes]
+        # If node_centric [T, N, C], flatten to [T, N*C] for uniform handling
+        is_node_centric = series_matrix.ndim == 3
+        if is_node_centric:
+            N, C = series_matrix.shape[1], series_matrix.shape[2]
+            series_2d = series_matrix.reshape(series_matrix.shape[0], N * C)
+            effective_edges = [
+                f"node_{n}_feat_{c}" for n in range(N) for c in range(C)
+            ]
+            # Adjacency: tile the N×N matrix to (N*C)×(N*C) by blocking
+            adj_raw = self.adjacency_matrices.get(selector_name)
+            if adj_raw is not None:
+                adj_raw = adj_raw[:N, :N]
+                adj_big = np.kron(adj_raw, np.ones((C, C), dtype=np.float32))
+            else:
+                adj_big = None
+            logger.info(f"  Flattened node_centric [T,{N},{C}] → [T,{N*C}]")
+        else:
+            series_2d = series_matrix
+            effective_edges = edges
+            adj_raw = self.adjacency_matrices.get(selector_name)
 
         # Split data
-        n_samples = series_matrix.shape[0]
+        n_samples = series_2d.shape[0]
         train_size = int(n_samples * DATA_CONFIG['train_ratio'])
         val_size = int(n_samples * DATA_CONFIG['val_ratio'])
 
-        train_data = series_matrix[:train_size]
-        val_data = series_matrix[train_size:train_size + val_size]
-        test_data = series_matrix[train_size + val_size:]
+        train_data = series_2d[:train_size]
+        val_data = series_2d[train_size:train_size + val_size]
+        test_data = series_2d[train_size + val_size:]
 
         # Prepare data for STGNN: [samples, time, nodes, features]
         X_train, y_train = self._prepare_stgnn_data(train_data, val_data, input_len, output_len)
@@ -461,15 +622,22 @@ strategies, and saves the time series data.
             logger.warning(f"  Not enough data for STGNN")
             return
 
+        num_series = series_2d.shape[1]
+
         # Get adjacency matrix
-        adj_matrix = self.adjacency_matrices[selector_name][:len(edges), :len(edges)]
+        if is_node_centric and adj_big is not None:
+            adj_matrix = adj_big[:num_series, :num_series]
+        elif adj_raw is not None:
+            adj_matrix = adj_raw[:num_series, :num_series]
+        else:
+            adj_matrix = np.eye(num_series)
 
         # Train STGNN
         try:
             model = STGNNModel(
                 input_len=input_len,
                 output_len=output_len,
-                num_nodes=len(edges),
+                num_nodes=num_series,
                 adjacency_matrix=adj_matrix,
                 input_dim=1,
                 hidden_dim=32,  # Use smaller hidden dim for faster training
@@ -491,7 +659,7 @@ strategies, and saves the time series data.
             predictions = model.predict(X_test, batch_size=8)
 
             # Evaluate per series
-            for i in range(len(edges)):
+            for i in range(num_series):
                 series_id = f"{selector_name}_edge_{i}"
 
                 pred_series = predictions[:, :, i, 0].flatten()
@@ -499,12 +667,14 @@ strategies, and saves the time series data.
 
                 metrics = calculate_metrics(target_series, pred_series)
 
+                edge_label = (effective_edges[i] if i < len(effective_edges)
+                              else str(i))
                 result = {
                     'series_id': series_id,
                     'model_type': 'stgnn',
                     'selector_type': selector_name,
                     'edge_idx': i,
-                    'edge': edges[i],
+                    'edge': edge_label,
                     'input_len': input_len,
                     'output_len': output_len,
                     'config': {'hidden_dim': 32, 'num_layers': 2, 'spatial': 'gcn', 'temporal': 'gru'},
@@ -520,7 +690,7 @@ strategies, and saves the time series data.
 
                 self.results.append(result)
 
-            logger.info(f"  STGNN: Completed {len(edges)} series")
+            logger.info(f"  STGNN: Completed {num_series} series")
 
         except Exception as e:
             logger.error(f"  STGNN experiment failed: {e}")
@@ -675,7 +845,7 @@ strategies, and saves the time series data.
 
         # Load characteristics
         all_characteristics = {}
-        for selector_name in ['high_weight', 'hub_nodes', 'communities']:
+        for selector_name in ['high_weight', 'hub_nodes', 'communities', 'dense_core']:
             char_path = SERIES_OUTPUT_DIR / selector_name / 'characteristics.json'
             if char_path.exists():
                 with open(char_path, 'r') as f:
