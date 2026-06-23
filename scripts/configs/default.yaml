@@ -1,0 +1,36 @@
+name: default
+seed: 42
+
+data:
+  flow_networks_dir: datasets/flow_networks
+  start_date: "2010-01"
+  end_date: "2019-12"
+
+pooling:
+  name: core_periphery
+  params:
+    n_core: 50
+    core_method: degree
+    periphery_attribute_map: null
+
+forecasting:
+  name: dmd
+  params:
+    input_len: 12
+    output_len: 1
+    rank: 20
+
+split:
+  train_ratio: 0.7
+  val_ratio: 0.15
+  test_ratio: 0.15
+  input_len: 12
+  output_len: 1
+
+evaluation:
+  metrics: [mae, rmse, mape, directional_accuracy]
+  core_periphery_split: true
+  significance_test: wilcoxon
+  n_seeds: 1
+
+output_dir: ckpt
