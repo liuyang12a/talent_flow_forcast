@@ -10,6 +10,7 @@ Migrated from the top-level ``flow_network.py`` module unchanged in behavior.
 
 from typing import Dict, List, Set, Tuple, Optional, Union, Iterator
 import copy
+import sys
 
 
 class FlowNetwork:
@@ -275,3 +276,10 @@ def merge_networks(networks: List[FlowNetwork]) -> FlowNetwork:
     for network in networks[1:]:
         result += network
     return result
+
+
+# Backwards-compatibility: legacy pickled ``FlowNetwork`` objects were stored
+# under the top-level module path ``flow_network.FlowNetwork``. Register that
+# module path as an alias of this module so that ``pickle.load`` resolves the
+# legacy class to the migrated class (single definition).
+sys.modules.setdefault("flow_network", sys.modules[__name__])

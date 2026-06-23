@@ -28,6 +28,19 @@ def _density(n_nodes: int, n_edges: int) -> float:
     return n_edges / possible if possible > 0 else 0.0
 
 
+def _dense_adjacency(network: FlowNetwork, node_ids, node_to_row) -> np.ndarray:
+    """Build a dense ``[len(node_ids), len(node_ids)]`` adjacency by iterating
+    edges. Only edges among ``node_ids`` are included."""
+    n = len(node_ids)
+    A = np.zeros((n, n), dtype=float)
+    for src, tgt, w in network.iter_edges():
+        i = node_to_row.get(src)
+        j = node_to_row.get(tgt)
+        if i is not None and j is not None:
+            A[i, j] += float(w)
+    return A
+
+
 def _spectral_error(
     adj_original: np.ndarray, adj_pooled: np.ndarray, k: int = 10
 ) -> float:
@@ -85,11 +98,27 @@ def _modularity(adj: np.ndarray, assignment: AssignmentMatrix) -> float:
     return float(Q)
 
 
+def _sub_assignment(assignment: AssignmentMatrix, keep_idx: np.ndarray) -> AssignmentMatrix:
+    """Return a sub-assignment restricted to rows in ``keep_idx``."""
+    return AssignmentMatrix(
+        S=assignment.S[keep_idx],
+        original_node_ids=[assignment.original_node_ids[i] for i in keep_idx],
+        supernode_ids=list(assignment.supernode_ids),
+        is_soft=assignment.is_soft,
+    )
+
+
 class PoolingQualityEvaluator:
     """Compute :class:`PoolingQualityMetrics` for a pooling result."""
 
-    def __init__(self, n_eigenvalues: int = 10):
+    def __init__(self, n_eigenvalues: int = 10, spectral_max_nodes: int = 500):
         self.n_eigenvalues = n_eigenvalues
+        # Spectral (and reconstruction) ops are O(N^2)/O(N^3); cap the
+        # original-graph size used for these expensive metrics. When N exceeds
+        # the cap, the original adjacency is subsampled to a random node subset
+        # of this size (density/modularity become approximate; spectral skipped
+        # entirely if still too large).
+        self.spectral_max_nodes = spectral_max_nodes
 
     def evaluate(
         self,
@@ -98,18 +127,23 @@ class PoolingQualityEvaluator:
         od_series: ODMatrixSeries,
         original_node_attributes: Optional[Dict] = None,
     ) -> PoolingQualityMetrics:
-        # --- aggregated original graph on the original node set ---
+        # --- aggregated original graph (sparse) ---
         agg = merge_networks(list(networks.values()))
         N = len(assignment.original_node_ids)
-        # restrict to nodes present in the assignment
         node_ids = list(assignment.original_node_ids)
-        adj_orig_list, _ = agg.to_adjacency_matrix(node_order=node_ids)
-        adj_orig = np.array(adj_orig_list, dtype=float)
-        n_edges_orig = int((adj_orig > 0).sum())
+        node_id_set = set(node_ids)
+        node_to_row = {nid: i for i, nid in enumerate(node_ids)}
+
+        # Count original edges among assigned nodes (single pass, no N x N).
+        n_edges_orig = 0
+        for src, tgt, _w in agg.iter_edges():
+            if src in node_id_set and tgt in node_id_set:
+                n_edges_orig += 1
         density_orig = _density(N, n_edges_orig)
 
-        # --- pooled graph (time-averaged OD) ---
-        adj_pooled = od_series.matrix.mean(axis=0)
+        # --- pooled graph (time-summed OD, same scale as the aggregated
+        # original graph so reconstruction is comparable) ---
+        adj_pooled = od_series.matrix.sum(axis=0)
         K = adj_pooled.shape[0]
         n_edges_pooled = int((adj_pooled > 0).sum())
         density_pooled = _density(K, n_edges_pooled)
@@ -121,19 +155,34 @@ class PoolingQualityEvaluator:
         zero_pooled = 1.0 - density_pooled
         zero_red = (zero_orig - zero_pooled) / zero_orig if zero_orig > 0 else 0.0
 
-        # --- reconstruction error: ||A - S A' S^T||_F / ||A||_F ---
+        # --- reconstruction error / modularity / spectral ---
+        # Build a *capped* dense adjacency only over a sampled subset of the
+        # original nodes when N is large; otherwise use the full set.
         S = assignment.S
-        recon = S @ adj_pooled @ S.T
-        recon_err = float(
-            np.linalg.norm(adj_orig - recon, "fro")
-            / (np.linalg.norm(adj_orig, "fro") + 1e-8)
-        )
-
-        # --- spectral preservation ---
-        spec_err = _spectral_error(adj_orig, adj_pooled, self.n_eigenvalues)
-
-        # --- modularity ---
-        mod = _modularity(adj_orig, assignment)
+        if N <= self.spectral_max_nodes:
+            adj_orig = _dense_adjacency(agg, node_ids, node_to_row)
+            recon = S @ adj_pooled @ S.T
+            recon_err = float(
+                np.linalg.norm(adj_orig - recon, "fro")
+                / (np.linalg.norm(adj_orig, "fro") + 1e-8)
+            )
+            spec_err = _spectral_error(adj_orig, adj_pooled, self.n_eigenvalues)
+            mod = _modularity(adj_orig, assignment)
+        else:
+            rng = np.random.default_rng(0)
+            keep = rng.choice(N, size=self.spectral_max_nodes, replace=False)
+            keep.sort()
+            keep_ids = [node_ids[i] for i in keep]
+            keep_to_row = {nid: i for i, nid in enumerate(keep_ids)}
+            adj_sub = _dense_adjacency(agg, keep_ids, keep_to_row)
+            S_sub = S[keep]
+            recon = S_sub @ adj_pooled @ S_sub.T
+            recon_err = float(
+                np.linalg.norm(adj_sub - recon, "fro")
+                / (np.linalg.norm(adj_sub, "fro") + 1e-8)
+            )
+            spec_err = float("nan")
+            mod = _modularity(adj_sub, _sub_assignment(assignment, keep))
 
         # --- cluster homogeneity (if attributes provided) ---
         homog = self._cluster_homogeneity(assignment, original_node_attributes)
