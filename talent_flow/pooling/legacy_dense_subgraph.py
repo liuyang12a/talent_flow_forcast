@@ -27,7 +27,7 @@ from typing import Dict, List, Set, Tuple, Optional, Union
 
 import numpy as np
 
-from flow_network import FlowNetwork
+from talent_flow.core import FlowNetwork
 
 logger = logging.getLogger(__name__)
 

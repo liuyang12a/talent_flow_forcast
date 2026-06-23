@@ -66,21 +66,20 @@ class DenseSubgraphPooler(BasePooler):
         self.min_temporal_score = min_temporal_score
 
     def _build_extractor(self):
-        # import the legacy module directly from its file path (the legacy
-        # ``src/`` tree is not a regular package).
-        import importlib.util
-        from pathlib import Path
+        # use the migrated legacy module inside the package
+        from talent_flow.pooling import legacy_dense_subgraph as mod
 
-        legacy_file = (
-            Path(__file__).resolve().parents[2] / "src" / "data" / "dense_subgraph.py"
+        cfg = mod.DenseSubgraphConfig(
+            spatial_strategy=self.spatial_strategy,
+            max_nodes=self.max_nodes,
+            min_nodes=self.min_nodes,
+            target_coverage=self.target_coverage,
+            min_activity_ratio=self.min_activity_ratio,
+            max_allowed_gap=self.max_allowed_gap,
+            min_temporal_score=self.min_temporal_score,
+            tensor_type="edge_centric",
         )
-        if not legacy_file.exists():
-            raise FileNotFoundError(f"legacy dense_subgraph.py not found: {legacy_file}")
-        spec = importlib.util.spec_from_file_location(
-            "legacy_dense_subgraph", legacy_file
-        )
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
+        return mod.DenseSubgraphExtractor(cfg, mod.EdgeCentricTensorBuilder())
         cfg = mod.DenseSubgraphConfig(
             spatial_strategy=self.spatial_strategy,
             max_nodes=self.max_nodes,
