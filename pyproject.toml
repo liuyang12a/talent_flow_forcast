@@ -1,6 +1,6 @@
 [project]
 name = "talent-flow"
-version = "0.2.0"
+version = "0.3.0"
 description = "人才流动网络分析工具 - 从招聘数据中提取企业员工流动网络，支持时间序列预测"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -25,9 +25,12 @@ classifiers = [
 dependencies = [
     "matplotlib>=3.9.4",
     "numpy>=2.0.2",
+    "scipy>=1.11.0",
     "scikit-learn>=1.6.1",
-    "tqdm>=4.68.1",
+    "networkx>=3.0",
     "pandas>=2.0.0",
+    "tqdm>=4.68.1",
+    "pyyaml>=6.0",
 ]
 
 [project.urls]
@@ -36,31 +39,34 @@ Repository = "https://github.com/yourusername/talent-flow"
 Issues = "https://github.com/yourusername/talent-flow/issues"
 
 [project.scripts]
-talent-flow = "preprocess:main"
+# talent-flow = "talent_flow.cli:main"  # TODO: add CLI entry point
 
 [project.optional-dependencies]
-forecast = [
-    "scikit-learn>=1.3.0",
-    "numpy>=1.24.0",
-    "matplotlib>=3.7.0",
+community = [
+    "python-louvain>=0.16",
 ]
 dl = [
     "torch>=2.0.0",
     "statsmodels>=0.14.0",
-    "networkx>=3.0",
-    "python-louvain>=0.16",
+    "seaborn>=0.13.0",
+]
+bayesian = [
+    "statsmodels>=0.14.0",
+]
+foundation = [
+    "transformers>=4.30.0",
 ]
 all = [
     "torch>=2.0.0",
     "statsmodels>=0.14.0",
     "networkx>=3.0",
     "python-louvain>=0.16",
+    "seaborn>=0.13.0",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=7.0",
-    "black>=22.0",
     "ruff>=0.1.0",
 ]
 
@@ -69,7 +75,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["."]
+packages = ["talent_flow"]
 
 [tool.uv]
 default-groups = ["dev"]
