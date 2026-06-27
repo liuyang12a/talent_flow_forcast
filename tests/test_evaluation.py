@@ -110,3 +110,86 @@ def test_report_generator_markdown():
     rows = ReportGenerator().generate_forecast_table(reports)
     md = ReportGenerator().to_markdown(rows)
     assert "dmd" in md and "arima" in md
+
+
+def _two_community_network(n_per: int = 30, intra: float = 5.0, inter: float = 0.1):
+    """Two dense communities loosely connected: nodes 0..n_per-1 and
+    n_per..2n_per-1. Strong intra-community edges, weak inter edges."""
+    net = FlowNetwork.empty()
+    for c in (0, n_per):
+        for i in range(c, c + n_per):
+            for j in range(c, c + n_per):
+                if i != j:
+                    net.add_edge(i, j, intra)
+    # a few weak inter edges
+    for i in range(n_per):
+        net.add_edge(i, n_per + i, inter)
+    return net
+
+
+def test_modularity_full_graph():
+    """Sparse full-graph modularity should detect strong community structure."""
+    net = _two_community_network(n_per=30)
+    networks = {"2010-01": net}
+    # assignment: each node -> its own community (2 communities)
+    n = 60
+    S = np.zeros((n, 2))
+    S[:30, 0] = 1.0
+    S[30:, 1] = 1.0
+    assignment = AssignmentMatrix(
+        S=S, original_node_ids=list(range(n)), supernode_ids=[0, 1]
+    )
+    od = ODMatrixSeries(
+        matrix=np.zeros((1, 2, 2)), timestamps=["2010-01"], supernode_ids=[0, 1]
+    )
+    q = PoolingQualityEvaluator().evaluate(networks, assignment, od)
+    # strong two-community structure -> Q should be clearly positive
+    assert q.modularity > 0.5
+
+
+def test_stratified_sample_covers_core():
+    """Stratified sample must include nodes from every super-node, including a
+    tiny core super-node that a uniform sample would almost surely miss."""
+    from talent_flow.evaluation.pooling_eval import _stratified_sample
+
+    N, K = 10000, 3
+    S = np.zeros((N, K))
+    # super-node 0 (core): only 5 nodes; super-nodes 1 and 2: ~5000 each
+    S[:5, 0] = 1.0
+    S[5:5000, 1] = 1.0
+    S[5000:, 2] = 1.0
+    assignment = AssignmentMatrix(
+        S=S, original_node_ids=list(range(N)), supernode_ids=[0, 1, 2]
+    )
+    keep = _stratified_sample(assignment, n_sample=200)
+    comm = np.argmax(S, axis=1)
+    sampled_communities = set(comm[keep].tolist())
+    # all three super-nodes (incl. the 5-node core) must be represented
+    assert sampled_communities == {0, 1, 2}
+    assert len(keep) <= 200
+
+
+def test_spectral_no_nan_large_n():
+    """On a large-N assignment, spectral_error must not be NaN (computed on
+    the pooled K x K graph + stratified sample)."""
+    net = _two_community_network(n_per=200)
+    networks = {"2010-01": net}
+    n = 400
+    S = np.zeros((n, 2))
+    S[:200, 0] = 1.0
+    S[200:, 1] = 1.0
+    assignment = AssignmentMatrix(
+        S=S, original_node_ids=list(range(n)), supernode_ids=[0, 1]
+    )
+    # non-zero pooled OD so the pooled spectrum is well-defined
+    od = ODMatrixSeries(
+        matrix=np.array([[[10.0, 0.5], [0.5, 10.0]]]),
+        timestamps=["2010-01"],
+        supernode_ids=[0, 1],
+    )
+    # force the sampling branch (N=400 > cap=100); small k for K=2
+    q = PoolingQualityEvaluator(spectral_max_nodes=100, n_eigenvalues=1).evaluate(
+        networks, assignment, od
+    )
+    assert q.spectral_error is not None
+    assert not np.isnan(q.spectral_error)

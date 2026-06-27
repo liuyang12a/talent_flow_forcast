@@ -105,3 +105,53 @@ def test_build_hard_assignment_validates():
             original_node_ids=["a", "b"],  # b has no cluster
             supernode_ids=["x"],
         )
+
+
+def test_pool_mode_assignment_equivalent_quality():
+    """mode='assignment' yields the same quality as mode='full' (linearity of
+    time-summed aggregation), but produces no od_series."""
+    nets = _toy_networks()
+    pooler = POOLER_REGISTRY.build("core_periphery", n_core=1)
+    full = pooler.pool(nets, mode="full")
+    asg = pooler.pool(nets, mode="assignment")
+
+    assert full.od_series is not None
+    assert asg.od_series is None  # no per-month series materialized
+    assert asg.quality is not None
+
+    # quality metrics must match (time-summed K x K == sum of per-month)
+    for field in (
+        "original_density",
+        "pooled_density",
+        "density_improvement_ratio",
+        "reconstruction_error",
+        "modularity",
+        "original_N",
+        "pooled_K",
+        "compression_ratio",
+    ):
+        assert abs(getattr(full.quality, field) - getattr(asg.quality, field)) < 1e-6, field
+
+
+def test_pool_mode_aggregate_only():
+    """mode='aggregate' reuses a pre-built assignment, returns od_series but
+    no quality, and matches the full-mode od_series."""
+    nets = _toy_networks()
+    pooler = POOLER_REGISTRY.build("core_periphery", n_core=1)
+    assignment = pooler.build_assignment(nets)
+    res = pooler.pool(nets, mode="aggregate", assignment=assignment)
+
+    assert res.quality is None
+    assert res.od_series is not None
+    # compare against full-mode od_series
+    full = pooler.pool(nets, mode="full")
+    assert np.allclose(res.od_series.matrix, full.od_series.matrix)
+
+
+def test_pool_mode_aggregate_requires_assignment():
+    import pytest
+
+    nets = _toy_networks()
+    pooler = POOLER_REGISTRY.build("core_periphery", n_core=1)
+    with pytest.raises(ValueError):
+        pooler.pool(nets, mode="aggregate")

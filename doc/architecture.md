@@ -179,8 +179,21 @@ python scripts/run_pipeline.py --config scripts/configs/default.yaml
 
 ```bash
 # 阶段1: 池化
-python scripts/run_pooling.py --pooler core_periphery --n-core 50 \
-    --start 2010-01 --end 2019-12 --out datasets/pooled/core_periphery
+# 1. 核心-边缘分解（论文创新，Hub独立+长尾聚合）
+python scripts/run_pooling.py --pooler core_periphery --n-core 50 --start 2010-01 --end 2019-12
+
+# 2. Louvain 社群发现（拓扑聚类）
+python scripts/run_pooling.py --pooler louvain --start 2010-01 --end 2019-12
+
+# 3. 语义聚合（按公司属性：行业/地理）
+python scripts/run_pooling.py --pooler semantic --start 2010-01 --end 2019-12
+
+# 4. 核心截断（Top-N 活跃节点）
+python scripts/run_pooling.py --pooler truncation --n-core 50 --start 2010-01 --end 2019-12
+
+# 5. 稠密子图（适配旧版三阶段算法）
+python scripts/run_pooling.py --pooler dense_subgraph --start 2010-01 --end 2019-12
+
 
 # 阶段2: 预测（读已池化数据）
 python scripts/run_forecast.py --pooled datasets/pooled/core_periphery \

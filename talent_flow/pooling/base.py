@@ -51,9 +51,59 @@ class BasePooler(ABC):
         self,
         networks: Dict[str, FlowNetwork],
         node_attributes: Optional[Dict[Any, Any]] = None,
+        mode: str = "full",
+        assignment: Optional[AssignmentMatrix] = None,
     ) -> PoolingResult:
-        """Run the full pooling flow: assignment -> aggregation -> quality."""
-        assignment = self.build_assignment(networks)
+        """Run the pooling flow in one of three modes.
+
+        Modes:
+            ``"full"`` (default): assignment -> aggregate -> evaluate. Returns a
+                complete :class:`PoolingResult` with ``od_series`` and ``quality``.
+            ``"assignment"``: assignment -> evaluate only. Internally computes a
+                time-summed ``K x K`` (``sum_t S^T A_t S``, no ``[T,K,K]``
+                materialized) so all quality metrics remain available, but
+                ``od_series`` is ``None``. Cheaper in memory (O(K^2) vs
+                O(T*K^2)) when the per-month OD series is not needed.
+            ``"aggregate"``: aggregate only, given a pre-built ``assignment``.
+                Returns ``od_series`` with ``quality=None``. Requires passing
+                ``assignment=``.
+        """
+        if mode == "aggregate":
+            if assignment is None:
+                raise ValueError("mode='aggregate' requires an assignment=")
+            od_series = self._aggregate(networks, assignment)
+            return PoolingResult(
+                od_series=od_series,
+                assignment=assignment,
+                quality=None,
+                config=dict(self.config),
+                pooler_name=self.name,
+            )
+
+        assignment = assignment if assignment is not None else self.build_assignment(networks)
+
+        if mode == "assignment":
+            # Time-summed K x K only (no [T,K,K]); wrap as a single-step series
+            # so the existing evaluator (which does sum(axis=0)) is reusable.
+            adj_summed = self._aggregate_summed(networks, assignment)
+            od_tmp = ODMatrixSeries(
+                matrix=adj_summed[None, :, :],
+                timestamps=["__summed__"],
+                supernode_ids=list(assignment.supernode_ids),
+                metadata={"pooler_name": self.name, "mode": "assignment"},
+            )
+            quality = self._evaluate_quality(
+                networks, assignment, od_tmp, node_attributes
+            )
+            return PoolingResult(
+                od_series=None,
+                assignment=assignment,
+                quality=quality,
+                config=dict(self.config),
+                pooler_name=self.name,
+            )
+
+        # mode == "full"
         od_series = self._aggregate(networks, assignment)
         quality = self._evaluate_quality(
             networks, assignment, od_series, node_attributes
@@ -115,6 +165,42 @@ class BasePooler(ABC):
             supernode_ids=list(assignment.supernode_ids),
             metadata={"pooler_name": self.name, "N": N, "K": K, "T": T},
         )
+
+    def _aggregate_summed(
+        self, networks: Dict[str, FlowNetwork], assignment: AssignmentMatrix
+    ) -> np.ndarray:
+        """Time-summed pooled adjacency ``sum_t (S^T A_t S)`` as a ``K x K``
+        array, without materializing the ``[T, K, K]`` OD series.
+
+        Equivalent to ``_aggregate(...).matrix.sum(axis=0)`` (by linearity,
+        ``sum_t S^T A_t S == S^T (sum_t A_t) S``) but uses O(K^2) memory
+        instead of O(T*K^2). Used by the ``"assignment"`` mode to keep all
+        quality metrics available while skipping the per-month OD series.
+        """
+        S = assignment.S
+        N, K = S.shape
+        node_ids = list(assignment.original_node_ids)
+        node_to_row = {nid: i for i, nid in enumerate(node_ids)}
+
+        if assignment.is_soft:
+            node_super_rows = {i: S[i] for i in range(N)}
+        else:
+            node_super = np.argmax(S, axis=1)
+            node_super_rows = None
+
+        adj_summed = np.zeros((K, K), dtype=float)
+        for net in networks.values():
+            for src, tgt, w in net.iter_edges():
+                i = node_to_row.get(src)
+                j = node_to_row.get(tgt)
+                if i is None or j is None:
+                    continue  # edge incident to a dropped node
+                if node_super_rows is not None:
+                    adj_summed += float(w) * np.outer(S[i], S[j])
+                else:
+                    si, sj = int(node_super[i]), int(node_super[j])
+                    adj_summed[si, sj] += float(w)
+        return adj_summed
 
     def _evaluate_quality(
         self,

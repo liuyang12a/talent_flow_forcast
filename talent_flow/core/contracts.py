@@ -152,11 +152,16 @@ class PoolingQualityMetrics:
 
 @dataclass
 class PoolingResult:
-    """Complete output of the pooling stage."""
+    """Complete output of the pooling stage.
 
-    od_series: ODMatrixSeries
-    assignment: AssignmentMatrix
-    quality: PoolingQualityMetrics
+    ``od_series`` and ``quality`` are optional: they are ``None`` when the
+    pooler ran in a partial mode (assignment-only or aggregate-only, see
+    :meth:`BasePooler.pool`).
+    """
+
+    od_series: Optional[ODMatrixSeries] = None
+    assignment: AssignmentMatrix = None  # type: ignore[assignment]
+    quality: Optional[PoolingQualityMetrics] = None
     config: Dict[str, Any] = field(default_factory=dict)
     pooler_name: str = ""
 

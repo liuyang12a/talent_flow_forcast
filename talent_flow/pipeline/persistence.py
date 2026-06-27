@@ -28,6 +28,18 @@ class PoolingResultStore:
 
     def save(self, result: PoolingResult, dir_path: str | Path) -> Path:
         d = ensure_dir(dir_path)
+        if result.od_series is None:
+            raise ValueError(
+                "cannot save a PoolingResult with od_series=None "
+                "(produced by pool(mode='assignment')); use mode='full' or "
+                "'aggregate' to obtain an od_series first"
+            )
+        if result.quality is None:
+            raise ValueError(
+                "cannot save a PoolingResult with quality=None "
+                "(produced by pool(mode='aggregate')); use mode='full' or "
+                "'assignment' to obtain quality first"
+            )
         np.save(str(d / "od_matrix.npy"), result.od_series.matrix)
         # timestamps / supernode ids / metadata as JSON
         meta = {

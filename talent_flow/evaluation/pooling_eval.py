@@ -4,11 +4,19 @@
 Mirrors the framework in ``pooling_evaluation_framework.md``:
 densification, information retention, structure preservation, clustering
 quality, scale.
+
+Large-N handling: when the original graph has many more nodes than
+``spectral_max_nodes``, reconstruction / spectral metrics are computed on a
+*stratified* sample that guarantees every super-node (especially small core
+super-nodes) is represented, rather than a uniform sample that would miss the
+core entirely for core-periphery-style assignments. Modularity is always
+computed on the full merged graph via a sparse edge pass (O(edges)), so it is
+unaffected by sampling.
 """
 
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 
@@ -41,31 +49,43 @@ def _dense_adjacency(network: FlowNetwork, node_ids, node_to_row) -> np.ndarray:
     return A
 
 
-def _spectral_error(
-    adj_original: np.ndarray, adj_pooled: np.ndarray, k: int = 10
-) -> float:
-    """Relative error of the first ``k`` Laplacian eigenvalues."""
+def _top_laplacian_eigvals(adj: np.ndarray, k: int) -> np.ndarray:
+    """Smallest ``k`` Laplacian eigenvalues of ``adj``, normalized by the
+    largest eigenvalue (so spectra of different-scale graphs are comparable).
+    Returns an empty array on failure."""
     try:
         from scipy.sparse.csgraph import laplacian
         from scipy.sparse.linalg import eigsh
     except ImportError:
-        return float("nan")
+        return np.array([])
 
-    def _top_eigvals(adj: np.ndarray, k: int) -> np.ndarray:
-        adj = np.asarray(adj, dtype=float)
-        L = laplacian(adj)
-        k = min(k, adj.shape[0] - 1)
-        if k < 1:
-            return np.array([0.0])
-        # eigsh on a dense array needs it positive-semidefinite; use shift-invert.
-        try:
-            vals = eigsh(L, k=k, which="SM", return_eigenvectors=False)
-            return np.sort(vals)
-        except Exception:
-            return np.array([0.0])
+    adj = np.asarray(adj, dtype=float)
+    if adj.shape[0] <= 1:
+        return np.array([])
+    L = laplacian(adj)
+    k = min(k, adj.shape[0] - 1)
+    if k < 1:
+        return np.array([])
+    try:
+        vals = eigsh(L, k=k, which="SM", return_eigenvectors=False)
+        vals = np.sort(np.abs(vals))
+    except Exception:
+        return np.array([])
+    # normalize by the largest (last) eigenvalue for cross-scale comparison
+    if vals[-1] > 1e-12:
+        vals = vals / vals[-1]
+    return vals
 
-    e_o = _top_eigvals(adj_original, k)
-    e_p = _top_eigvals(adj_pooled, k)
+
+def _spectral_error(adj_original: np.ndarray, adj_pooled: np.ndarray, k: int = 10) -> float:
+    """Relative error of the first ``k`` normalized Laplacian eigenvalues.
+
+    Both spectra are normalized by their own largest eigenvalue before
+    comparison, so a small pooled ``K x K`` graph can be compared against a
+    larger sampled original subgraph.
+    """
+    e_o = _top_laplacian_eigvals(adj_original, k)
+    e_p = _top_laplacian_eigvals(adj_pooled, k)
     n = min(len(e_o), len(e_p))
     if n == 0:
         return float("nan")
@@ -73,39 +93,95 @@ def _spectral_error(
     return float(np.mean(np.abs(e_o[:n] - e_p[:n]) / denom))
 
 
-def _modularity(adj: np.ndarray, assignment: AssignmentMatrix) -> float:
-    """Modularity of the hard assignment on the (aggregated) graph."""
-    A = np.asarray(adj, dtype=float)
-    n = A.shape[0]
-    if n == 0:
-        return 0.0
-    m = A.sum()
+def _modularity_sparse(
+    networks: Dict[str, FlowNetwork], assignment: AssignmentMatrix
+) -> float:
+    """Newman modularity of the hard assignment on the full merged graph.
+
+    Computed by a single sparse pass over edges (O(edges)), so it is exact on
+    the full graph regardless of N — no sampling. This avoids the bias where a
+    uniform sample misses small core super-nodes and collapses Q to 0.
+    """
+    S = assignment.S
+    comm = np.argmax(S, axis=1)  # [N] super-node index per node
+    K = S.shape[1]
+    node_to_row = {nid: i for i, nid in enumerate(assignment.original_node_ids)}
+
+    in_sum = np.zeros(K)  # intra-community edge weight
+    deg = np.zeros(K)  # out-strength per community
+    m = 0.0
+    agg = merge_networks(list(networks.values()))
+    for src, tgt, w in agg.iter_edges():
+        i = node_to_row.get(src)
+        j = node_to_row.get(tgt)
+        if i is None or j is None:
+            continue
+        w = float(w)
+        m += w
+        deg[comm[i]] += w
+        if comm[i] == comm[j]:
+            in_sum[comm[i]] += w
     if m == 0:
         return 0.0
-    deg = A.sum(axis=1)
-    # communities: argmax of S rows (hard assignment)
-    S = assignment.S
-    comm = np.argmax(S, axis=1)
-    K = S.shape[1]
     Q = 0.0
     for c in range(K):
-        idx = np.where(comm == c)[0]
-        if len(idx) == 0:
-            continue
-        in_sum = A[np.ix_(idx, idx)].sum()
-        deg_sum = deg[idx].sum()
-        Q += in_sum / m - (deg_sum / (2 * m)) ** 2
+        Q += in_sum[c] / m - (deg[c] / (2 * m)) ** 2
     return float(Q)
 
 
-def _sub_assignment(assignment: AssignmentMatrix, keep_idx: np.ndarray) -> AssignmentMatrix:
-    """Return a sub-assignment restricted to rows in ``keep_idx``."""
-    return AssignmentMatrix(
-        S=assignment.S[keep_idx],
-        original_node_ids=[assignment.original_node_ids[i] for i in keep_idx],
-        supernode_ids=list(assignment.supernode_ids),
-        is_soft=assignment.is_soft,
-    )
+def _stratified_sample(
+    assignment: AssignmentMatrix, n_sample: int, seed: int = 0
+) -> np.ndarray:
+    """Row indices of original nodes to keep for sample-based metrics.
+
+    Stratified by super-node so that *every* super-node is represented:
+      1. all nodes of any super-node with <= per-supernode quota are kept;
+      2. larger super-nodes contribute a proportional share up to the budget.
+
+    This guarantees small core super-nodes (which a uniform sample would miss)
+    are always included — critical for core-periphery assignments where the
+    core is a tiny fraction of N. Falls back to all rows when N <= n_sample.
+    """
+    N = assignment.S.shape[0]
+    if N <= n_sample:
+        return np.arange(N)
+
+    comm = np.argmax(assignment.S, axis=1)
+    K = assignment.S.shape[1]
+    rng = np.random.default_rng(seed)
+
+    # group node rows by community
+    groups: List[np.ndarray] = []
+    for c in range(K):
+        idx = np.where(comm == c)[0]
+        if len(idx) > 0:
+            groups.append(idx)
+
+    # first pass: keep all small communities (size <= per-supernode fair share)
+    fair = max(1, n_sample // max(1, len(groups)))
+    keep = []
+    remaining_budget = n_sample
+    big_groups = []
+    for g in groups:
+        if len(g) <= fair:
+            keep.append(g)
+            remaining_budget -= len(g)
+        else:
+            big_groups.append(g)
+
+    # second pass: distribute remaining budget proportionally among big groups
+    if big_groups:
+        total_big = sum(len(g) for g in big_groups)
+        for g in big_groups:
+            q = max(1, int(round(remaining_budget * len(g) / total_big)))
+            q = min(q, len(g))
+            keep.append(rng.choice(g, size=q, replace=False))
+
+    out = np.sort(np.concatenate(keep))
+    # final cap (rounding may slightly overshoot)
+    if len(out) > n_sample:
+        out = np.sort(rng.choice(out, size=n_sample, replace=False))
+    return out
 
 
 class PoolingQualityEvaluator:
@@ -113,11 +189,9 @@ class PoolingQualityEvaluator:
 
     def __init__(self, n_eigenvalues: int = 10, spectral_max_nodes: int = 500):
         self.n_eigenvalues = n_eigenvalues
-        # Spectral (and reconstruction) ops are O(N^2)/O(N^3); cap the
-        # original-graph size used for these expensive metrics. When N exceeds
-        # the cap, the original adjacency is subsampled to a random node subset
-        # of this size (density/modularity become approximate; spectral skipped
-        # entirely if still too large).
+        # Budget for the stratified sample used by reconstruction / spectral
+        # metrics when N is large. Modularity is computed on the full graph
+        # (sparse) and is unaffected by this cap.
         self.spectral_max_nodes = spectral_max_nodes
 
     def evaluate(
@@ -132,7 +206,6 @@ class PoolingQualityEvaluator:
         N = len(assignment.original_node_ids)
         node_ids = list(assignment.original_node_ids)
         node_id_set = set(node_ids)
-        node_to_row = {nid: i for i, nid in enumerate(node_ids)}
 
         # Count original edges among assigned nodes (single pass, no N x N).
         n_edges_orig = 0
@@ -155,34 +228,27 @@ class PoolingQualityEvaluator:
         zero_pooled = 1.0 - density_pooled
         zero_red = (zero_orig - zero_pooled) / zero_orig if zero_orig > 0 else 0.0
 
-        # --- reconstruction error / modularity / spectral ---
-        # Build a *capped* dense adjacency only over a sampled subset of the
-        # original nodes when N is large; otherwise use the full set.
+        # --- reconstruction error / spectral (sample-based when N is large) ---
+        # Stratified sample guarantees every super-node is represented, avoiding
+        # the uniform-sample bias that misses small core super-nodes.
         S = assignment.S
         if N <= self.spectral_max_nodes:
-            adj_orig = _dense_adjacency(agg, node_ids, node_to_row)
-            recon = S @ adj_pooled @ S.T
-            recon_err = float(
-                np.linalg.norm(adj_orig - recon, "fro")
-                / (np.linalg.norm(adj_orig, "fro") + 1e-8)
-            )
-            spec_err = _spectral_error(adj_orig, adj_pooled, self.n_eigenvalues)
-            mod = _modularity(adj_orig, assignment)
+            keep = np.arange(N)
         else:
-            rng = np.random.default_rng(0)
-            keep = rng.choice(N, size=self.spectral_max_nodes, replace=False)
-            keep.sort()
-            keep_ids = [node_ids[i] for i in keep]
-            keep_to_row = {nid: i for i, nid in enumerate(keep_ids)}
-            adj_sub = _dense_adjacency(agg, keep_ids, keep_to_row)
-            S_sub = S[keep]
-            recon = S_sub @ adj_pooled @ S_sub.T
-            recon_err = float(
-                np.linalg.norm(adj_sub - recon, "fro")
-                / (np.linalg.norm(adj_sub, "fro") + 1e-8)
-            )
-            spec_err = float("nan")
-            mod = _modularity(adj_sub, _sub_assignment(assignment, keep))
+            keep = _stratified_sample(assignment, self.spectral_max_nodes)
+        keep_ids = [node_ids[i] for i in keep]
+        keep_to_row = {nid: i for i, nid in enumerate(keep_ids)}
+        adj_sub = _dense_adjacency(agg, keep_ids, keep_to_row)
+        S_sub = S[keep]
+        recon = S_sub @ adj_pooled @ S_sub.T
+        recon_err = float(
+            np.linalg.norm(adj_sub - recon, "fro")
+            / (np.linalg.norm(adj_sub, "fro") + 1e-8)
+        )
+        spec_err = _spectral_error(adj_sub, adj_pooled, self.n_eigenvalues)
+
+        # --- modularity: full-graph sparse pass (exact, no sampling) ---
+        mod = _modularity_sparse(networks, assignment)
 
         # --- cluster homogeneity (if attributes provided) ---
         homog = self._cluster_homogeneity(assignment, original_node_attributes)
