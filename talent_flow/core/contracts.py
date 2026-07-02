@@ -87,36 +87,56 @@ class ODMatrixSeries:
 
 @dataclass
 class AssignmentMatrix:
-    """Mapping from original nodes to super-nodes, ``S in R^{N x K}``.
+    """Hard (one-hot) mapping from original nodes to super-nodes.
 
-    For hard assignment each row has a single 1; for soft assignment each row
-    is a probability distribution. Used for de-pooling and quality evaluation.
+    Stored compactly as a length-N index array ``node_super`` (the super-node
+    index of each original node) rather than a dense ``N x K`` matrix — for a
+    hard assignment the matrix would be one-hot and waste O(N*K) memory (e.g.
+    N=1.76M, K=5000 -> 66GB dense vs ~14MB as int32 indices). Soft assignment
+    is not supported.
 
     Attributes:
-        S: array of shape ``[N, K]``.
+        node_super: int array of shape ``[N]``; ``node_super[i]`` is the index
+            (into ``supernode_ids``) of the super-node that original node *i*
+            belongs to.
         original_node_ids: length-N list of original node identifiers.
         supernode_ids: length-K list of super-node identifiers.
-        is_soft: whether S is a soft (probabilistic) assignment.
     """
 
-    S: np.ndarray
+    node_super: np.ndarray
     original_node_ids: List[Any]
     supernode_ids: List[Any]
-    is_soft: bool = False
 
     def __post_init__(self) -> None:
-        self.S = np.asarray(self.S, dtype=np.float64)
-        if self.S.ndim != 2:
-            raise ValueError(f"S must be 2D [N, K], got shape {self.S.shape}")
-        n, k = self.S.shape
+        self.node_super = np.asarray(self.node_super)
+        if self.node_super.ndim != 1:
+            raise ValueError(
+                f"node_super must be 1D [N], got shape {self.node_super.shape}"
+            )
+        n = self.node_super.shape[0]
         if len(self.original_node_ids) != n:
             raise ValueError(
                 f"original_node_ids length {len(self.original_node_ids)} != N={n}"
             )
-        if len(self.supernode_ids) != k:
-            raise ValueError(
-                f"supernode_ids length {len(self.supernode_ids)} != K={k}"
-            )
+        k = len(self.supernode_ids)
+        if k == 0:
+            raise ValueError("supernode_ids must be non-empty")
+        if self.node_super.size > 0:
+            lo, hi = int(self.node_super.min()), int(self.node_super.max())
+            if lo < 0 or hi >= k:
+                raise ValueError(
+                    f"node_super values must be in [0, {k}), got [{lo}, {hi}]"
+                )
+
+    @property
+    def N(self) -> int:
+        """Number of original nodes."""
+        return self.node_super.shape[0]
+
+    @property
+    def K(self) -> int:
+        """Number of super-nodes."""
+        return len(self.supernode_ids)
 
 
 @dataclass

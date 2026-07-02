@@ -59,10 +59,32 @@ def test_od_matrix_series_slice():
 def test_assignment_matrix_validation():
     with pytest.raises(ValueError):
         AssignmentMatrix(
-            S=np.zeros((3, 2)),
-            original_node_ids=["a", "b"],  # length mismatch
+            node_super=np.array([0, 1]),  # length 2
+            original_node_ids=["a", "b", "c"],  # length 3 -> mismatch
             supernode_ids=[0, 1],
         )
+
+
+def test_assignment_matrix_index_out_of_range():
+    with pytest.raises(ValueError):
+        AssignmentMatrix(
+            node_super=np.array([0, 1, 2]),  # 2 is out of range for K=2
+            original_node_ids=["a", "b", "c"],
+            supernode_ids=[0, 1],
+        )
+
+
+def test_assignment_matrix_index_storage():
+    """node_super is a compact int index array; large N is cheap."""
+    am = AssignmentMatrix(
+        node_super=np.array([0, 2, 1, 0, 2]),
+        original_node_ids=["a", "b", "c", "d", "e"],
+        supernode_ids=["s0", "s1", "s2"],
+    )
+    assert am.N == 5
+    assert am.K == 3
+    assert am.node_super.dtype.kind in ("i", "u")
+    assert am.node_super.tolist() == [0, 2, 1, 0, 2]
 
 
 def test_forecast_result_shape_mismatch():

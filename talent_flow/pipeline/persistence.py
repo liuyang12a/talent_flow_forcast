@@ -52,12 +52,11 @@ class PoolingResultStore:
             "assignment": {
                 "original_node_ids": [str(n) for n in result.assignment.original_node_ids],
                 "supernode_ids": [str(s) for s in result.assignment.supernode_ids],
-                "is_soft": result.assignment.is_soft,
             },
         }
         save_json(meta, d / "metadata.json")
-        np.savez_compressed(
-            str(d / "assignment.npz"), S=result.assignment.S
+        np.save(
+            str(d / "node_super.npy"), result.assignment.node_super
         )
         return d
 
@@ -65,12 +64,11 @@ class PoolingResultStore:
         d = Path(dir_path)
         meta = load_json(d / "metadata.json")
         matrix = np.load(str(d / "od_matrix.npy"))
-        S = np.load(str(d / "assignment.npz"))["S"]
+        node_super = np.load(str(d / "node_super.npy"))
         assignment = AssignmentMatrix(
-            S=S,
+            node_super=node_super,
             original_node_ids=meta["assignment"]["original_node_ids"],
             supernode_ids=meta["assignment"]["supernode_ids"],
-            is_soft=meta["assignment"]["is_soft"],
         )
         od_series = ODMatrixSeries(
             matrix=matrix,

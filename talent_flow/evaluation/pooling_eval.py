@@ -102,9 +102,8 @@ def _modularity_sparse(
     the full graph regardless of N — no sampling. This avoids the bias where a
     uniform sample misses small core super-nodes and collapses Q to 0.
     """
-    S = assignment.S
-    comm = np.argmax(S, axis=1)  # [N] super-node index per node
-    K = S.shape[1]
+    comm = assignment.node_super  # [N] super-node index per node
+    K = assignment.K
     node_to_row = {nid: i for i, nid in enumerate(assignment.original_node_ids)}
 
     in_sum = np.zeros(K)  # intra-community edge weight
@@ -142,12 +141,12 @@ def _stratified_sample(
     are always included — critical for core-periphery assignments where the
     core is a tiny fraction of N. Falls back to all rows when N <= n_sample.
     """
-    N = assignment.S.shape[0]
+    N = assignment.N
     if N <= n_sample:
         return np.arange(N)
 
-    comm = np.argmax(assignment.S, axis=1)
-    K = assignment.S.shape[1]
+    comm = assignment.node_super
+    K = assignment.K
     rng = np.random.default_rng(seed)
 
     # group node rows by community
@@ -231,7 +230,6 @@ class PoolingQualityEvaluator:
         # --- reconstruction error / spectral (sample-based when N is large) ---
         # Stratified sample guarantees every super-node is represented, avoiding
         # the uniform-sample bias that misses small core super-nodes.
-        S = assignment.S
         if N <= self.spectral_max_nodes:
             keep = np.arange(N)
         else:
@@ -239,8 +237,10 @@ class PoolingQualityEvaluator:
         keep_ids = [node_ids[i] for i in keep]
         keep_to_row = {nid: i for i, nid in enumerate(keep_ids)}
         adj_sub = _dense_adjacency(agg, keep_ids, keep_to_row)
-        S_sub = S[keep]
-        recon = S_sub @ adj_pooled @ S_sub.T
+        # reconstruct the sampled sub-adjacency from the pooled K x K: for a
+        # hard assignment, recon[i,j] = adj_pooled[node_super[i], node_super[j]]
+        ns_sub = assignment.node_super[keep]
+        recon = adj_pooled[np.ix_(ns_sub, ns_sub)]
         recon_err = float(
             np.linalg.norm(adj_sub - recon, "fro")
             / (np.linalg.norm(adj_sub, "fro") + 1e-8)
@@ -273,8 +273,8 @@ class PoolingQualityEvaluator:
     ) -> Optional[float]:
         if attributes is None:
             return None
-        comm = np.argmax(assignment.S, axis=1)
-        K = assignment.S.shape[1]
+        comm = assignment.node_super
+        K = assignment.K
         scores = []
         for c in range(K):
             idx = np.where(comm == c)[0]

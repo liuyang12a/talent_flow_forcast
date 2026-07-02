@@ -79,9 +79,9 @@ def test_pooling_quality_evaluator():
     net.add_edge(3, 1, 2)
     networks = {"2010-01": net}
     # assign nodes 1,2,3 -> supernodes; keep as identity (K=N=3)
-    S = np.eye(3)
+    node_super = np.array([0, 1, 2])
     assignment = AssignmentMatrix(
-        S=S, original_node_ids=[1, 2, 3], supernode_ids=[0, 1, 2]
+        node_super=node_super, original_node_ids=[1, 2, 3], supernode_ids=[0, 1, 2]
     )
     od = ODMatrixSeries(
         matrix=np.array([[[0, 5, 0], [0, 0, 3], [2, 0, 0]]], dtype=float),
@@ -133,11 +133,9 @@ def test_modularity_full_graph():
     networks = {"2010-01": net}
     # assignment: each node -> its own community (2 communities)
     n = 60
-    S = np.zeros((n, 2))
-    S[:30, 0] = 1.0
-    S[30:, 1] = 1.0
+    node_super = np.array([0] * 30 + [1] * 30)
     assignment = AssignmentMatrix(
-        S=S, original_node_ids=list(range(n)), supernode_ids=[0, 1]
+        node_super=node_super, original_node_ids=list(range(n)), supernode_ids=[0, 1]
     )
     od = ODMatrixSeries(
         matrix=np.zeros((1, 2, 2)), timestamps=["2010-01"], supernode_ids=[0, 1]
@@ -153,17 +151,13 @@ def test_stratified_sample_covers_core():
     from talent_flow.evaluation.pooling_eval import _stratified_sample
 
     N, K = 10000, 3
-    S = np.zeros((N, K))
     # super-node 0 (core): only 5 nodes; super-nodes 1 and 2: ~5000 each
-    S[:5, 0] = 1.0
-    S[5:5000, 1] = 1.0
-    S[5000:, 2] = 1.0
+    node_super = np.array([0] * 5 + [1] * 4995 + [2] * 5000)
     assignment = AssignmentMatrix(
-        S=S, original_node_ids=list(range(N)), supernode_ids=[0, 1, 2]
+        node_super=node_super, original_node_ids=list(range(N)), supernode_ids=[0, 1, 2]
     )
     keep = _stratified_sample(assignment, n_sample=200)
-    comm = np.argmax(S, axis=1)
-    sampled_communities = set(comm[keep].tolist())
+    sampled_communities = set(assignment.node_super[keep].tolist())
     # all three super-nodes (incl. the 5-node core) must be represented
     assert sampled_communities == {0, 1, 2}
     assert len(keep) <= 200
@@ -175,11 +169,9 @@ def test_spectral_no_nan_large_n():
     net = _two_community_network(n_per=200)
     networks = {"2010-01": net}
     n = 400
-    S = np.zeros((n, 2))
-    S[:200, 0] = 1.0
-    S[200:, 1] = 1.0
+    node_super = np.array([0] * 200 + [1] * 200)
     assignment = AssignmentMatrix(
-        S=S, original_node_ids=list(range(n)), supernode_ids=[0, 1]
+        node_super=node_super, original_node_ids=list(range(n)), supernode_ids=[0, 1]
     )
     # non-zero pooled OD so the pooled spectrum is well-defined
     od = ODMatrixSeries(

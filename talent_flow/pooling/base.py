@@ -130,21 +130,13 @@ class BasePooler(ABC):
         very large, since the assignment is sparse (each original node maps
         to exactly one super-node in the hard-assignment case).
         """
-        S = assignment.S
-        N, K = S.shape
+        node_super = assignment.node_super
+        N, K = assignment.N, assignment.K
         node_ids = list(assignment.original_node_ids)
         node_to_row = {nid: i for i, nid in enumerate(node_ids)}
         months = sorted(networks.keys())
         T = len(months)
         matrix = np.zeros((T, K, K), dtype=float)
-
-        # Precompute, per original node, its super-node index (hard assignment)
-        # or its soft row (soft assignment).
-        if assignment.is_soft:
-            node_super_rows = {i: S[i] for i in range(N)}
-        else:
-            node_super = np.argmax(S, axis=1)  # [N] super-node index per node
-            node_super_rows = None
 
         for t, month in enumerate(months):
             net = networks[month]
@@ -153,12 +145,8 @@ class BasePooler(ABC):
                 j = node_to_row.get(tgt)
                 if i is None or j is None:
                     continue  # edge incident to a dropped node
-                if node_super_rows is not None:
-                    # soft assignment: outer product contribution
-                    matrix[t] += float(w) * np.outer(S[i], S[j])
-                else:
-                    si, sj = int(node_super[i]), int(node_super[j])
-                    matrix[t, si, sj] += float(w)
+                si, sj = int(node_super[i]), int(node_super[j])
+                matrix[t, si, sj] += float(w)
         return ODMatrixSeries(
             matrix=matrix,
             timestamps=months,
@@ -177,16 +165,10 @@ class BasePooler(ABC):
         instead of O(T*K^2). Used by the ``"assignment"`` mode to keep all
         quality metrics available while skipping the per-month OD series.
         """
-        S = assignment.S
-        N, K = S.shape
+        node_super = assignment.node_super
+        K = assignment.K
         node_ids = list(assignment.original_node_ids)
         node_to_row = {nid: i for i, nid in enumerate(node_ids)}
-
-        if assignment.is_soft:
-            node_super_rows = {i: S[i] for i in range(N)}
-        else:
-            node_super = np.argmax(S, axis=1)
-            node_super_rows = None
 
         adj_summed = np.zeros((K, K), dtype=float)
         for net in networks.values():
@@ -195,11 +177,8 @@ class BasePooler(ABC):
                 j = node_to_row.get(tgt)
                 if i is None or j is None:
                     continue  # edge incident to a dropped node
-                if node_super_rows is not None:
-                    adj_summed += float(w) * np.outer(S[i], S[j])
-                else:
-                    si, sj = int(node_super[i]), int(node_super[j])
-                    adj_summed[si, sj] += float(w)
+                si, sj = int(node_super[i]), int(node_super[j])
+                adj_summed[si, sj] += float(w)
         return adj_summed
 
     def _evaluate_quality(
